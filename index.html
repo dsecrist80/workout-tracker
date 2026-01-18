@@ -41,54 +41,148 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
+        const TYPES = {
+            compound_lower: { C: 1.3, name: 'Compound Lower' },
+            compound_upper: { C: 1.0, name: 'Compound Upper' },
+            isolation: { C: 0.4, name: 'Isolation' }
+        };
+
+        const MUSCLES = ['Quads', 'Hams', 'Glutes', 'Calves', 'Chest', 'Back', 'Shoulders', 'Bi', 'Tri', 'Forearms', 'Abs', 'LowBack'];
+
         function WorkoutTracker() {
             const [ready, setReady] = useState(false);
             const [exercises, setExercises] = useState([]);
+            const [workouts, setWorkouts] = useState([]);
+            const [view, setView] = useState('session');
+            
+            // Exercise builder
+            const [name, setName] = useState('');
+            const [type, setType] = useState('compound_upper');
+            const [axial, setAxial] = useState(false);
+            const [prim, setPrim] = useState([]);
+            const [sec, setSec] = useState([]);
+            const [showAdv, setShowAdv] = useState(false);
+            
+            // Session
+            const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+            const [selEx, setSelEx] = useState('');
+            const [sets, setSets] = useState([]);
+            const [input, setInput] = useState({ w: '', r: '', rir: '' });
+            const [session, setSession] = useState([]);
 
             useEffect(() => {
                 const init = () => {
                     if (window.firebaseReady) {
                         setReady(true);
-                        loadExercises();
+                        load('exercises', setExercises, loadPresets);
+                        load('workouts', setWorkouts);
                     }
                 };
                 
-                if (window.firebaseReady) {
-                    init();
-                } else {
-                    window.addEventListener('firebaseReady', init);
-                }
+                if (window.firebaseReady) init();
+                else window.addEventListener('firebaseReady', init);
             }, []);
 
-            const loadExercises = async () => {
+            const save = async (col, data) => {
                 try {
-                    const snap = await window.dbGetDocs(window.dbCollection(window.db, 'exercises'));
+                    await window.dbSetDoc(window.dbDoc(window.db, col, 'data'), { items: data });
+                } catch(e) { console.error(e); }
+            };
+
+            const load = async (col, setter, defaultFn) => {
+                try {
+                    const snap = await window.dbGetDocs(window.dbCollection(window.db, col));
                     if (!snap.empty) {
-                        snap.forEach(d => {
-                            if (d.data().items) setExercises(d.data().items);
-                        });
-                    } else {
-                        loadPresets();
-                    }
+                        snap.forEach(d => { if (d.data().items) setter(d.data().items); });
+                    } else if (defaultFn) defaultFn();
                 } catch(e) {
                     console.error(e);
-                    loadPresets();
+                    if (defaultFn) defaultFn();
                 }
             };
 
-            const loadPresets = async () => {
-                const presets = [
+            const loadPresets = () => {
+                const p = [
                     { id: 1, name: 'Barbell Squat', type: 'compound_lower', axial: true, prim: ['Quads', 'Glutes'], sec: ['Hams'] },
                     { id: 2, name: 'Bench Press', type: 'compound_upper', axial: false, prim: ['Chest'], sec: ['Tri', 'Shoulders'] },
-                    { id: 3, name: 'Deadlift', type: 'compound_lower', axial: true, prim: ['Hams', 'LowBack', 'Glutes'], sec: [] }
+                    { id: 3, name: 'Deadlift', type: 'compound_lower', axial: true, prim: ['Hams', 'LowBack', 'Glutes'], sec: [] },
+                    { id: 4, name: 'Overhead Press', type: 'compound_upper', axial: true, prim: ['Shoulders'], sec: ['Tri'] },
+                    { id: 5, name: 'Barbell Row', type: 'compound_upper', axial: false, prim: ['Back'], sec: ['Bi'] },
+                    { id: 6, name: 'Pull-ups', type: 'compound_upper', axial: false, prim: ['Back'], sec: ['Bi'] },
+                    { id: 7, name: 'Romanian Deadlift', type: 'compound_lower', axial: true, prim: ['Hams'], sec: ['Glutes', 'LowBack'] },
+                    { id: 8, name: 'Leg Press', type: 'compound_lower', axial: false, prim: ['Quads', 'Glutes'], sec: [] },
+                    { id: 9, name: 'Dumbbell Bench', type: 'compound_upper', axial: false, prim: ['Chest'], sec: ['Tri', 'Shoulders'] },
+                    { id: 10, name: 'Lat Pulldown', type: 'compound_upper', axial: false, prim: ['Back'], sec: ['Bi'] },
+                    { id: 11, name: 'Leg Curl', type: 'isolation', axial: false, prim: ['Hams'], sec: [] },
+                    { id: 12, name: 'Leg Extension', type: 'isolation', axial: false, prim: ['Quads'], sec: [] },
+                    { id: 13, name: 'Bicep Curl', type: 'isolation', axial: false, prim: ['Bi'], sec: [] },
+                    { id: 14, name: 'Tricep Extension', type: 'isolation', axial: false, prim: ['Tri'], sec: [] },
+                    { id: 15, name: 'Lateral Raise', type: 'isolation', axial: false, prim: ['Shoulders'], sec: [] },
+                    { id: 16, name: 'Calf Raise', type: 'isolation', axial: false, prim: ['Calves'], sec: [] }
                 ];
-                setExercises(presets);
-                
-                try {
-                    await window.dbSetDoc(window.dbDoc(window.db, 'exercises', 'data'), { items: presets });
-                } catch(e) {
-                    console.error(e);
+                setExercises(p);
+                save('exercises', p);
+            };
+
+            const toggle = (m, isPrim) => {
+                if (isPrim) {
+                    setPrim(p => p.includes(m) ? p.filter(x => x !== m) : [...p, m]);
+                    setSec(s => s.filter(x => x !== m));
+                } else {
+                    setSec(s => s.includes(m) ? s.filter(x => x !== m) : [...s, m]);
+                    setPrim(p => p.filter(x => x !== m));
                 }
+            };
+
+            const saveEx = () => {
+                if (!name || prim.length === 0) return alert('Enter name and select primary muscles');
+                const id = exercises.length > 0 ? Math.max(...exercises.map(e => e.id)) + 1 : 1;
+                const updated = [...exercises, { id, name, type, axial, prim, sec }];
+                setExercises(updated);
+                save('exercises', updated);
+                setName(''); setPrim([]); setSec([]); setAxial(false); setShowAdv(false);
+            };
+
+            const delEx = (id) => {
+                const updated = exercises.filter(e => e.id !== id);
+                setExercises(updated);
+                save('exercises', updated);
+            };
+
+            const addSet = () => {
+                if (!input.w || !input.r || input.rir === '') return alert('Fill all fields');
+                setSets([...sets, { w: parseFloat(input.w), r: parseInt(input.r), rir: parseInt(input.rir) }]);
+                setInput({ w: input.w, r: '', rir: '' });
+            };
+
+            const addToSess = () => {
+                if (!selEx || sets.length === 0) return alert('Select exercise and add sets');
+                const ex = exercises.find(e => e.id == selEx);
+                if (!ex) return;
+                setSession([...session, { ...ex, sets: [...sets], id: Date.now() }]);
+                setSets([]);
+                setInput({ w: '', r: '', rir: '' });
+                setSelEx('');
+            };
+
+            const finish = () => {
+                if (session.length === 0) return alert('Add exercises');
+                const w = [...session.map(e => ({ ...e, date })), ...workouts];
+                setWorkouts(w);
+                save('workouts', w);
+                setSession([]);
+                alert('Saved!');
+            };
+
+            const exByMuscle = () => {
+                const g = {};
+                exercises.forEach(ex => {
+                    ex.prim.forEach(m => {
+                        if (!g[m]) g[m] = [];
+                        g[m].push(ex);
+                    });
+                });
+                return g;
             };
 
             if (!ready) {
@@ -102,31 +196,129 @@
             return (
                 <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 p-4">
                     <div className="max-w-4xl mx-auto">
-                        <div className="bg-white rounded-lg shadow-xl p-6">
-                            <h1 className="text-3xl font-bold mb-6">Workout Tracker</h1>
-                            
-                            <div className="mb-6">
-                                <h2 className="text-xl font-bold mb-4">Exercises ({exercises.length})</h2>
-                                {exercises.map(ex => (
-                                    <div key={ex.id} className="p-3 border rounded mb-2">
-                                        <div className="font-semibold">{ex.name}</div>
-                                        <div className="text-sm text-gray-600">{ex.prim.join(', ')}</div>
-                                    </div>
-                                ))}
-                            </div>
-                            
-                            <button 
-                                onClick={loadPresets}
-                                className="bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700"
-                            >
-                                Reload Presets
-                            </button>
-                            
-                            <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded">
-                                <div className="font-semibold text-green-900">✓ Firebase Connected</div>
-                                <div className="text-sm text-green-700">Data syncs automatically across devices</div>
-                            </div>
+                        <div className="grid grid-cols-2 gap-2 mb-4">
+                            <button onClick={() => setView('session')} className={`py-3 rounded-lg font-semibold ${view === 'session' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}>Session</button>
+                            <button onClick={() => setView('exercises')} className={`py-3 rounded-lg font-semibold ${view === 'exercises' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}>Exercises</button>
                         </div>
+
+                        {view === 'session' && (
+                            <div className="bg-white rounded-lg shadow-xl p-6">
+                                <h1 className="text-2xl font-bold mb-4">Log Session</h1>
+                                
+                                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full px-3 py-2 border rounded mb-3" />
+                                
+                                {exercises.length === 0 ? (
+                                    <div className="bg-yellow-50 border border-yellow-200 rounded p-4 text-center">
+                                        <p className="mb-2">No exercises</p>
+                                        <button onClick={() => setView('exercises')} className="bg-blue-600 text-white px-4 py-2 rounded">Create Exercises</button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <select value={selEx} onChange={(e) => setSelEx(e.target.value)} className="w-full px-3 py-2 border rounded mb-3">
+                                            <option value="">Choose exercise...</option>
+                                            {Object.entries(exByMuscle()).map(([muscle, exs]) => (
+                                                <optgroup key={muscle} label={muscle}>
+                                                    {exs.map(ex => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
+                                                </optgroup>
+                                            ))}
+                                        </select>
+
+                                        {selEx && (
+                                            <>
+                                                {sets.length > 0 && (
+                                                    <div className="bg-slate-50 p-3 rounded mb-3">
+                                                        {sets.map((s, i) => (
+                                                            <div key={i} className="flex justify-between text-sm mb-1">
+                                                                <span>Set {i+1}: {s.w}lb × {s.r} @ {s.rir}RIR</span>
+                                                                <button onClick={() => setSets(sets.filter((_, idx) => idx !== i))} className="text-red-500">×</button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                <div className="grid grid-cols-3 gap-2 mb-3">
+                                                    <input type="number" step="0.5" value={input.w} onChange={(e) => setInput({...input, w: e.target.value})} placeholder="Weight" className="px-3 py-2 border rounded" />
+                                                    <input type="number" value={input.r} onChange={(e) => setInput({...input, r: e.target.value})} placeholder="Reps" className="px-3 py-2 border rounded" />
+                                                    <input type="number" value={input.rir} onChange={(e) => setInput({...input, rir: e.target.value})} placeholder="RIR" className="px-3 py-2 border rounded" />
+                                                </div>
+
+                                                <button onClick={addSet} className="w-full bg-blue-600 text-white py-2 rounded mb-2">+ Add Set</button>
+                                                <button onClick={addToSess} className="w-full bg-green-600 text-white py-2 rounded" disabled={sets.length === 0}>✓ Add to Session</button>
+                                            </>
+                                        )}
+                                    </>
+                                )}
+
+                                {session.length > 0 && (
+                                    <div className="mt-6 border-t pt-4">
+                                        <div className="flex justify-between mb-3">
+                                            <h2 className="text-xl font-bold">Session ({session.length})</h2>
+                                            <button onClick={finish} className="bg-blue-600 text-white px-4 py-2 rounded">Finish</button>
+                                        </div>
+                                        {session.map((ex, i) => (
+                                            <div key={i} className="border p-3 rounded mb-2">
+                                                <div className="font-semibold">{ex.name}</div>
+                                                {ex.sets.map((s, j) => <div key={j} className="text-xs">Set {j+1}: {s.w}lb × {s.r} @ {s.rir}RIR</div>)}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {view === 'exercises' && (
+                            <div className="bg-white rounded-lg shadow-xl p-6">
+                                <h1 className="text-2xl font-bold mb-4">Exercises</h1>
+                                
+                                <div className="space-y-3 mb-6 pb-6 border-b">
+                                    <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Exercise name" className="w-full px-3 py-2 border rounded" />
+                                    
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <select value={type} onChange={(e) => setType(e.target.value)} className="px-3 py-2 border rounded">
+                                            {Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
+                                        </select>
+                                        <label className="flex items-center gap-2 border rounded px-3 py-2">
+                                            <input type="checkbox" checked={axial} onChange={(e) => setAxial(e.target.checked)} />
+                                            <span className="text-sm">Axially Loaded</span>
+                                        </label>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {MUSCLES.map(m => (
+                                            <button key={m} onClick={() => toggle(m, true)} className={`px-2 py-1 text-sm rounded border ${prim.includes(m) ? 'bg-blue-600 text-white' : 'bg-white'}`}>{m}</button>
+                                        ))}
+                                    </div>
+
+                                    <button onClick={() => setShowAdv(!showAdv)} className="text-sm text-blue-600">{showAdv ? '− Hide' : '+ Add'} Secondary</button>
+
+                                    {showAdv && (
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {MUSCLES.map(m => (
+                                                <button key={m} onClick={() => toggle(m, false)} className={`px-2 py-1 text-xs rounded border ${sec.includes(m) ? 'bg-green-600 text-white' : 'bg-white'}`}>{m}</button>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    <button onClick={saveEx} className="w-full bg-blue-600 text-white py-2 rounded">Save Exercise</button>
+                                </div>
+
+                                <div>
+                                    <div className="flex gap-2 mb-3">
+                                        <button onClick={loadPresets} className="text-blue-600 underline text-sm">Load Presets</button>
+                                    </div>
+                                    <h2 className="font-bold mb-3">All Exercises ({exercises.length})</h2>
+                                    {exercises.map(ex => (
+                                        <div key={ex.id} className="border p-3 rounded mb-2 flex justify-between">
+                                            <div>
+                                                <div className="font-semibold">{ex.name}</div>
+                                                <div className="text-xs text-slate-600">{ex.prim.join(', ')}</div>
+                                            </div>
+                                            <button onClick={() => delEx(ex.id)} className="text-red-500">🗑️</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             );
