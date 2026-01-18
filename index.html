@@ -84,6 +84,13 @@
             const [progName, setProgName] = useState('');
             const [progDays, setProgDays] = useState([]);
             const [currentDay, setCurrentDay] = useState({ name: '', exercises: [] });
+            
+            // Readiness tracking
+            const [muscleReadiness, setMuscleReadiness] = useState({});
+            const [systemicReadiness, setSystemicReadiness] = useState(1.0);
+            const [perceivedFatigue, setPerceivedFatigue] = useState(5);
+            const [muscleSoreness, setMuscleSoreness] = useState({});
+            const [showFatigueLog, setShowFatigueLog] = useState(false);
 
             useEffect(() => {
                 const init = () => {
@@ -207,6 +214,7 @@
                 const w = [...session.map(e => ({ ...e, date })), ...workouts];
                 setWorkouts(w);
                 save('workouts', w);
+                updateReadiness(session);
                 setSession([]);
                 if (activeProgram) {
                     const nextIndex = (currentDayIndex + 1) % activeProgram.days.length;
@@ -321,6 +329,108 @@
                 return `${m}:${sec.toString().padStart(2, '0')}`;
             };
 
+            const calcStimPerSet = (set, role) => {
+                const I = estI(set.r, set.rir);
+                const effort = Math.exp(-0.2 * set.rir);
+                return effort * I * role;
+            };
+
+            const calcLocalFatPerSet = (set, role, axial) => {
+                const axMult = axial ? 1.3 : 1.0;
+                return set.w * set.r * role * axMult;
+            };
+
+            const calcSysFatPerSet = (set, isCompound, axial) => {
+                if (!isCompound) return 0;
+                const axMult = axial ? 1.5 : 1.0;
+                return set.w * set.r * axMult;
+            };
+
+            const updateReadiness = (newWorkout) => {
+                const newMuscleReadiness = {...muscleReadiness};
+                let newSysFat = systemicReadiness < 1.0 ? -Math.log(systemicReadiness) : 0;
+                
+                // Apply perceived fatigue correction (0-10 scale)
+                const perceivedCorrection = (perceivedFatigue - 5) * 0.1; // Center at 5
+                newSysFat += perceivedCorrection;
+                
+                // Calculate fatigue from new workout
+                newWorkout.forEach(ex => {
+                    const isComp = ex.type !== 'isolation';
+                    ex.sets.forEach(set => {
+                        ex.prim.forEach(m => {
+                            const localFat = calcLocalFatPerSet(set, 1.0, ex.axial);
+                            const current = newMuscleReadiness[m] || 1.0;
+                            const currentFat = current < 1.0 ? -Math.log(current) : 0;
+                            
+                            // Apply soreness correction (0-10 scale)
+                            const sorenessCorrection = (muscleSoreness[m] || 0) * 0.05;
+                            
+                            newMuscleReadiness[m] = Math.exp(-(currentFat + localFat * 0.001 + sorenessCorrection));
+                        });
+                        ex.sec.forEach(m => {
+                            const localFat = calcLocalFatPerSet(set, 0.5, ex.axial);
+                            const current = newMuscleReadiness[m] || 1.0;
+                            const currentFat = current < 1.0 ? -Math.log(current) : 0;
+                            
+                            const sorenessCorrection = (muscleSoreness[m] || 0) * 0.05;
+                            
+                            newMuscleReadiness[m] = Math.exp(-(currentFat + localFat * 0.001 + sorenessCorrection));
+                        });
+                        newSysFat += calcSysFatPerSet(set, isComp, ex.axial) * 0.0001;
+                    });
+                });
+                
+                setMuscleReadiness(newMuscleReadiness);
+                setSystemicReadiness(Math.exp(-newSysFat));
+            };
+
+            const getProgression = (exId) => {
+                if (!exId) return null;
+                
+                const ex = exercises.find(e => e.id == exId);
+                if (!ex) return null;
+                
+                const prev = getPrevPerformance(exId);
+                if (!prev || !prev.sets || prev.sets.length === 0) return { advice: 'first_time' };
+                
+                // Get muscle readiness
+                const muscles = [...ex.prim, ...ex.sec];
+                const avgReadiness = muscles.reduce((sum, m) => sum + (muscleReadiness[m] || 1.0), 0) / muscles.length;
+                
+                // Check if axial compound
+                const isAxialComp = ex.type !== 'isolation' && ex.axial;
+                
+                // Generate recommendation
+                if (avgReadiness > 0.85 && systemicReadiness > 0.85) {
+                    return {
+                        advice: 'progress',
+                        suggestion: 'Increase weight by 2.5-5lbs or add 1 rep',
+                        readiness: 'high',
+                        muscleReadiness: avgReadiness,
+                        systemicReadiness
+                    };
+                } else if (avgReadiness < 0.65 || systemicReadiness < 0.65) {
+                    return {
+                        advice: 'reduce',
+                        suggestion: isAxialComp 
+                            ? 'Reduce weight 10% or increase RIR by 1-2' 
+                            : 'Increase RIR by 1-2 or reduce 1 set',
+                        readiness: 'low',
+                        muscleReadiness: avgReadiness,
+                        systemicReadiness
+                    };
+                } else {
+                    return {
+                        advice: 'maintain',
+                        suggestion: 'Match previous performance',
+                        readiness: 'moderate',
+                        muscleReadiness: avgReadiness,
+                        systemicReadiness
+                    };
+                }
+            };
+
             if (!ready) {
                 return (
                     <div className="min-h-screen bg-slate-900 flex items-center justify-center">
@@ -342,6 +452,57 @@
                         {view === 'session' && (
                             <div className="bg-white rounded-lg shadow-xl p-6">
                                 <h1 className="text-2xl font-bold mb-4">Log Session</h1>
+                                
+                                <button 
+                                    onClick={() => setShowFatigueLog(!showFatigueLog)}
+                                    className="w-full mb-4 py-2 px-4 bg-slate-100 rounded text-sm font-semibold"
+                                >
+                                    {showFatigueLog ? '− Hide' : '+ Log'} Fatigue & Soreness
+                                </button>
+
+                                {showFatigueLog && (
+                                    <div className="mb-4 p-4 bg-slate-50 rounded border">
+                                        <h3 className="font-semibold mb-3">How do you feel today?</h3>
+                                        
+                                        <div className="mb-4">
+                                            <label className="block text-sm font-medium mb-2">
+                                                Overall Fatigue: {perceivedFatigue}/10
+                                            </label>
+                                            <input 
+                                                type="range" 
+                                                min="0" 
+                                                max="10" 
+                                                value={perceivedFatigue}
+                                                onChange={(e) => setPerceivedFatigue(parseInt(e.target.value))}
+                                                className="w-full"
+                                            />
+                                            <div className="flex justify-between text-xs text-slate-600">
+                                                <span>Energized</span>
+                                                <span>Neutral</span>
+                                                <span>Exhausted</span>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium mb-2">Muscle Soreness (0-10)</label>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                {MUSCLES.map(m => (
+                                                    <div key={m} className="flex items-center gap-2">
+                                                        <span className="text-xs w-16">{m}</span>
+                                                        <input 
+                                                            type="number"
+                                                            min="0"
+                                                            max="10"
+                                                            value={muscleSoreness[m] || 0}
+                                                            onChange={(e) => setMuscleSoreness({...muscleSoreness, [m]: parseInt(e.target.value) || 0})}
+                                                            className="w-12 px-1 py-1 border rounded text-xs text-center"
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                                 
                                 {activeProgram && (
                                     <div className="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
@@ -381,9 +542,31 @@
                                                     const prev = getPrevPerformance(selEx);
                                                     const selExObj = exercises.find(e => e.id == selEx);
                                                     const hasPrescribed = selExObj && selExObj.prescribedSets;
+                                                    const prog = getProgression(selEx);
                                                     
                                                     return (
                                                         <>
+                                                            {prog && prog.advice !== 'first_time' && (
+                                                                <div className={`border rounded p-3 mb-3 ${
+                                                                    prog.readiness === 'high' ? 'bg-green-50 border-green-200' :
+                                                                    prog.readiness === 'low' ? 'bg-red-50 border-red-200' :
+                                                                    'bg-yellow-50 border-yellow-200'
+                                                                }`}>
+                                                                    <div className="text-sm font-semibold mb-1">
+                                                                        Recommendation: {
+                                                                            prog.advice === 'progress' ? '📈 Progress' :
+                                                                            prog.advice === 'reduce' ? '⚠️ Deload' :
+                                                                            '➡️ Maintain'
+                                                                        }
+                                                                    </div>
+                                                                    <div className="text-xs mb-2">{prog.suggestion}</div>
+                                                                    <div className="text-xs opacity-75">
+                                                                        Muscle: {(prog.muscleReadiness * 100).toFixed(0)}% | 
+                                                                        System: {(prog.systemicReadiness * 100).toFixed(0)}%
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                            
                                                             {hasPrescribed && (
                                                                 <div className="bg-purple-50 border border-purple-200 rounded p-3 mb-3">
                                                                     <div className="text-sm font-semibold text-purple-900">Program Prescription</div>
