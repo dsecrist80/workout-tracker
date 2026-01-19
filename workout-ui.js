@@ -559,48 +559,90 @@ const handleTouchEnd = (e, index) => {
                     const prog = window.getProgression(selEx, exercises, workouts, muscleReadiness, systemicReadiness, weeklyStimulus);
                     
                     return (
-                            {prog && prog.advice !== 'first_time' && (
-                                <div className={`border-2 rounded-lg p-4 mb-4 ${
-                                    prog.readiness === 'deload' ? 'bg-orange-100 border-orange-300' :
-                                    prog.readiness === 'high' ? 'bg-green-50 border-green-200' :
-                                    prog.readiness === 'low' ? 'bg-red-50 border-red-200' :
-                                    'bg-yellow-50 border-yellow-200'
-                                }`}>
-                                    <div className="text-base font-bold mb-2">
-                                        {
-                                            prog.advice === 'deload' ? '🔄 DELOAD NEEDED' :
-                                            prog.advice === 'progress' ? '📈 Progress' :
-                                            prog.advice === 'reduce' ? '⚠️ Reduce Load' :
-                                            '➡️ Maintain'
-                                        }
-                                    </div>
-                                    <div className="text-sm mb-2 leading-relaxed">{prog.suggestion}</div>
-                                    {prog.reason && <div className="text-sm font-semibold mb-2 text-orange-700">{prog.reason}</div>}
-                                    <div className="text-sm opacity-75">
-                                        Muscle: {(prog.muscleReadiness * 100).toFixed(0)}% | 
-                                        System: {(prog.systemicReadiness * 100).toFixed(0)}%
-                                    </div>
-                                </div>
-                            )}
-                            
-                            {hasPrescribed && (
-                                <div className="bg-purple-50 border-2 border-purple-200 rounded-lg p-4 mb-4">
-                                    <div className="text-base font-semibold text-purple-900">Program Prescription</div>
-                                    <div className="text-sm text-purple-800">
-                                        {selExObj.prescribedSets} sets × {selExObj.prescribedReps} reps @ {selExObj.prescribedRir} RIR
-                                    </div>
-                                </div>
-                            )}
-                            {prev && prev.sets && prev.sets.length > 0 && (
-                                <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-4">
-                                    <div className="text-base font-semibold text-blue-900 mb-1">Last Performance ({new Date(prev.date).toLocaleDateString()})</div>
-                                    <div className="text-sm text-blue-800">
-                                        {prev.sets.map((s, i) => (
-                                            <span key={i}>{i > 0 && ', '}{s.w}lb × {s.r} @ {s.rir}RIR</span>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
+                            return (
+    <>
+        {prog && prog.advice !== 'first_time' && (
+            <div
+                className={`border-2 rounded-lg p-4 mb-4 ${
+                    prog.readiness === 'deload'
+                        ? 'bg-orange-100 border-orange-300'
+                        : prog.readiness === 'high'
+                        ? 'bg-green-50 border-green-200'
+                        : prog.readiness === 'low'
+                        ? 'bg-red-50 border-red-200'
+                        : 'bg-yellow-50 border-yellow-200'
+                }`}
+            >
+                <div className="text-base font-bold mb-2">
+                    {prog.advice === 'deload'
+                        ? '🔄 DELOAD NEEDED'
+                        : prog.advice === 'progress'
+                        ? '📈 Progress'
+                        : prog.advice === 'reduce'
+                        ? '⚠️ Reduce Load'
+                        : '➡️ Maintain'}
+                </div>
+
+                <div className="text-sm mb-2 leading-relaxed">
+                    {prog.suggestion}
+                </div>
+
+                {prog.reason && (
+                    <div className="text-sm font-semibold mb-2 text-orange-700">
+                        {prog.reason}
+                    </div>
+                )}
+
+                <div className="text-sm opacity-75">
+                    Muscle: {(prog.muscleReadiness * 100).toFixed(0)}% | System:{' '}
+                    {(prog.systemicReadiness * 100).toFixed(0)}%
+                </div>
+            </div>
+        )}
+
+        {hasPrescribed && (
+            <div className="bg-purple-50 border-2 border-purple-200 rounded-lg p-4 mb-4">
+                <div className="text-base font-semibold text-purple-900">
+                    Program Prescription
+                </div>
+                <div className="text-sm text-purple-800">
+                    {selExObj.prescribedSets} sets ×{' '}
+                    {selExObj.prescribedReps} reps @{' '}
+                    {selExObj.prescribedRir} RIR
+                </div>
+            </div>
+        )}
+
+        {prev?.sets?.length > 0 && (
+            <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-4">
+                <div className="text-base font-semibold text-blue-900 mb-1">
+                    Last Performance (
+                    {new Date(prev.date).toLocaleDateString()})
+                </div>
+                <div className="text-sm text-blue-800">
+                    {prev.sets.map((s, i) => (
+                        <span key={i}>
+                            {i > 0 && ', '}
+                            {s.w}lb × {s.r} @ {s.rir}RIR
+                        </span>
+                    ))}
+                </div>
+            </div>
+        )}
+
+        {timerActive && restTimer > 0 && (
+            <div className="bg-green-50 border-2 border-green-200 rounded-lg p-6 text-center mb-4">
+                <div className="text-base font-semibold text-green-900 mb-2">
+                    Rest Timer
+                </div>
+                <div className="text-5xl font-bold text-green-700">
+                    {window.formatTime(restTimer)}
+                </div>
+            </div>
+        )}
+
+        {sets.length > 0 && (
+            <div clas
 
                             {timerActive && restTimer > 0 && (
                                 <div className="bg-green-50 border-2 border-green-200 rounded-lg p-6 text-center mb-4">
