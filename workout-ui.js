@@ -607,6 +607,7 @@ const handleTouchEnd = (e, index) => {
                                     <div className="text-base font-semibold text-green-900 mb-2">Rest Timer</div>
                                     <div className="text-5xl font-bold text-green-700">{window.formatTime(restTimer)}</div>
                                 </div>
+                                </>
                             )}
 
                            {sets.length > 0 && (
