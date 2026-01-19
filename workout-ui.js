@@ -437,9 +437,6 @@ function WorkoutTracker() {
                     <button onClick={() => setView('programs')} className={`py-3 rounded-lg font-semibold col-span-2 ${view === 'programs' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}>Programs</button>
                 </div>
 
-                // Replace the placeholder <div className="bg-white rounded-lg shadow-xl p-6">...</div>
-// in workout-ui.js with this complete views section:
-
 {view === 'session' && (
     <div className="bg-white rounded-lg shadow-xl p-4 sm:p-6">
         <h1 className="text-3xl font-bold mb-4 sm:mb-6">Log Session</h1>
