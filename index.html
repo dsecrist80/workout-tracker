@@ -1127,10 +1127,10 @@
                                 <h1 className="text-3xl font-bold mb-4 sm:mb-6">Log Session</h1>
                                 
                                 <button 
-                                    onClick={() => setShowFatigueLog(!showFatigueLog)}
+                                    onClick={() => {setShowFatigueLog(!showFatigueLog)}}
                                     className="w-full mb-4 py-3 px-4 bg-slate-100 rounded-lg text-base font-semibold"
                                 >
-                                    {showFatigueLog ? '− Hide' : '+ Log'} Fatigue & Soreness
+                                    {showFatigueLog ? 'Hide' : '+ Log'} Fatigue &amp; Soreness
                                 </button>
 
                                 {showFatigueLog && (
