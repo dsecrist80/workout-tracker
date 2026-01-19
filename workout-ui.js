@@ -37,7 +37,6 @@ function WorkoutTracker() {
     const [timerActive, setTimerActive] = useState(false);
     const [repsRef, setRepsRef] = useState(null);
     const [rirRef, setRirRef] = useState(null);
-    const [swipeStart, setSwipeStart] = useState(null);
     
     // State - Programs
     const [progName, setProgName] = useState('');
@@ -54,6 +53,7 @@ function WorkoutTracker() {
     const [muscleSoreness, setMuscleSoreness] = useState({});
     const [showFatigueLog, setShowFatigueLog] = useState(false);
     const [lastWorkoutDate, setLastWorkoutDate] = useState(null);
+    const [swipeStart, setSwipeStart] = useState(null);
 
     // Initialize
     useEffect(() => {
@@ -255,24 +255,23 @@ function WorkoutTracker() {
         setTimerActive(true);
         if (repsRef) setTimeout(() => repsRef.focus(), 100);
     };
-const handleTouchStart = (e, index) => {
-    setSwipeStart({ x: e.touches[0].clientX, index });
-};
+    const handleTouchStart = (e, index) => {
+        setSwipeStart({ x: e.touches[0].clientX, index });
+    };
 
-const handleTouchEnd = (e, index) => {
-    if (!swipeStart || swipeStart.index !== index) return;
-    
-    const swipeEnd = e.changedTouches[0].clientX;
-    const swipeDistance = swipeStart.x - swipeEnd;
-    
-    // If swiped left more than 50px, delete the set
-    if (swipeDistance > 50) {
-        setSets(sets.filter((_, idx) => idx !== index));
-    }
-    
-    setSwipeStart(null);
-};
-    
+    const handleTouchEnd = (e, index) => {
+        if (!swipeStart || swipeStart.index !== index) return;
+        
+        const swipeEnd = e.changedTouches[0].clientX;
+        const swipeDistance = swipeStart.x - swipeEnd;
+        
+        if (swipeDistance > 50) {
+            setSets(sets.filter((_, idx) => idx !== index));
+        }
+        
+        setSwipeStart(null);
+    };
+
     const addToSess = () => {
         if (!selEx || sets.length === 0) return alert('Select exercise and add sets');
         const ex = exercises.find(e => e.id == selEx);
@@ -609,10 +608,10 @@ const handleTouchEnd = (e, index) => {
                                 </div>
                             )}
 
-                           {sets.length > 0 && (
-    <div className="bg-slate-50 p-4 rounded-lg mb-4 border-2">
-        {sets.map((s, i) => (
-            <div key={i} className="flex justify-between items-center text-base mb-2 py-2 border-b last:border-b-0">
+                            {sets.length > 0 && (
+                                <div className="bg-slate-50 p-4 rounded-lg mb-4 border-2">
+                                    {sets.map((s, i) => (
+                                        <div key={i} className="flex justify-between items-center text-base mb-2 py-2 border-b last:border-b-0" onTouchStart={(e) => handleTouchStart(e, i)} onTouchEnd={(e) => handleTouchEnd(e, i)}>
                                             <span className="font-semibold">Set {i+1}: {s.w}lb × {s.r} @ {s.rir}RIR</span>
                                             <button onClick={() => setSets(sets.filter((_, idx) => idx !== i))} className="text-red-500 text-2xl px-2">×</button>
                                         </div>
@@ -984,6 +983,77 @@ const handleTouchEnd = (e, index) => {
     <div className="bg-white rounded-lg shadow-xl p-4 sm:p-6">
         <h1 className="text-2xl sm:text-3xl font-bold mb-6">Recovery Status</h1>
 
+<div className="mb-8 p-5 bg-gradient-to-r from-green-50 to-blue-50 border-2 border-green-200 rounded-lg">
+            <h2 className="font-bold text-xl mb-4">This Week's Progress</h2>
+            {(() => {
+                const summary = window.getWeeklySummary(workouts);
+                return (
+                    <div className="grid grid-cols-3 gap-4">
+                        <div className="text-center">
+                            <div className="text-3xl font-bold text-green-700">{summary.workouts}</div>
+                            <div className="text-sm text-slate-600">Workouts</div>
+                        </div>
+                        <div className="text-center">
+                            <div className="text-3xl font-bold text-blue-700">{summary.totalSets}</div>
+                            <div className="text-sm text-slate-600">Total Sets</div>
+                        </div>
+                        <div className="text-center">
+                            <div className="text-3xl font-bold text-purple-700">{summary.musclesWorked.length}</div>
+                            <div className="text-sm text-slate-600">Muscles Hit</div>
+                        </div>
+                    </div>
+                );
+            })()}
+            <div className="mt-4 pt-4 border-t border-green-300">
+                <div className="text-sm font-semibold mb-2">Volume by Muscle</div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                    {(() => {
+                        const summary = window.getWeeklySummary(workouts);
+                        return Object.entries(summary.volumePerMuscle)
+                            .sort((a, b) => b[1] - a[1])
+                            .slice(0, 6)
+                            .map(([muscle, volume]) => (
+                                <div key={muscle} className="flex justify-between bg-white px-2 py-1 rounded">
+                                    <span className="font-medium">{muscle}</span>
+                                    <span className="text-slate-600">{volume.toLocaleString()}</span>
+                                </div>
+                            ));
+                    })()}
+                </div>
+            </div>
+        </div>
+
+        <div className="mb-8 p-5 bg-white border-2 rounded-lg">
+            <h2 className="font-bold text-xl mb-4">Volume Trends (Last 4 Weeks)</h2>
+            {(() => {
+                const trends = window.getVolumeTrends(workouts);
+                const maxVolume = Math.max(...trends.map(t => t.volume), 1);
+                
+                return (
+                    <div className="space-y-3">
+                        {trends.map((week, i) => (
+                            <div key={i}>
+                                <div className="flex justify-between text-sm mb-1">
+                                    <span className="font-semibold">{week.week}</span>
+                                    <span className="text-slate-600">{week.volume.toLocaleString()} lbs · {week.sets} sets</span>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-6 overflow-hidden">
+                                    <div 
+                                        className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all flex items-center justify-end px-2"
+                                        style={{width: `${(week.volume / maxVolume) * 100}%`}}
+                                    >
+                                        {week.volume > 0 && (
+                                            <span className="text-xs font-bold text-white">{week.volume.toLocaleString()}</span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                );
+            })()}
+        </div>
+    
         <div className="mb-8 p-5 bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200 rounded-lg">
             <h2 className="font-bold text-xl mb-4">Systemic Readiness</h2>
             <div className="flex items-center gap-4">
