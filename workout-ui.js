@@ -607,24 +607,12 @@ const handleTouchEnd = (e, index) => {
                                     <div className="text-base font-semibold text-green-900 mb-2">Rest Timer</div>
                                     <div className="text-5xl font-bold text-green-700">{window.formatTime(restTimer)}</div>
                                 </div>
-                                </>
                             )}
 
                            {sets.length > 0 && (
     <div className="bg-slate-50 p-4 rounded-lg mb-4 border-2">
         {sets.map((s, i) => (
-            <div 
-                key={i} 
-                className="flex justify-between items-center text-base mb-2 py-2 border-b last:border-b-0 touch-pan-y"
-                onTouchStart={(e) => handleTouchStart(e, i)}
-                onTouchEnd={(e) => handleTouchEnd(e, i)}
-            >
-                <span className="font-semibold">Set {i+1}: {s.w}lb × {s.r} @ {s.rir}RIR</span>
-                <button onClick={() => setSets(sets.filter((_, idx) => idx !== i))} className="text-red-500 text-2xl px-2">×</button>
-            </div>
-        ))}
-    </div>
-)}
+            <div key={i} className="flex justify-between items-center text-base mb-2 py-2 border-b last:border-b-0">
                                             <span className="font-semibold">Set {i+1}: {s.w}lb × {s.r} @ {s.rir}RIR</span>
                                             <button onClick={() => setSets(sets.filter((_, idx) => idx !== i))} className="text-red-500 text-2xl px-2">×</button>
                                         </div>
