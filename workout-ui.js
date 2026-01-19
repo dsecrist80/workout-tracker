@@ -625,9 +625,7 @@ const handleTouchEnd = (e, index) => {
         ))}
     </div>
 )}
-                                            <span className="font-semibold">Set {i+1}: {s.w}lb × {s.r} @ {s.rir}RIR</span>
-                                            <button onClick={() => setSets(sets.filter((_, idx) => idx !== i))} className="text-red-500 text-2xl px-2">×</button>
-                                        </div>
+                                        
                                     ))}
                                 </div>
                             )}
