@@ -620,16 +620,17 @@ const handleTouchEnd = (e, index) => {
         )}
     </div>
 );
+{hasPrescribed && (
+    <div className="bg-purple-50 border-2 border-purple-200 rounded-lg p-4 mb-4">
+        <div className="text-base font-semibold text-purple-900">
+            Program Prescription
+        </div>
+        <div className="text-sm text-purple-800">
+            {selExObj.prescribedSets} sets × {selExObj.prescribedReps} reps @ {selExObj.prescribedRir} RIR
+        </div>
+    </div>
+)}
 
-                    Program Prescription
-                </div>
-                <div className="text-sm text-purple-800">
-                    {selExObj.prescribedSets} sets ×{' '}
-                    {selExObj.prescribedReps} reps @{' '}
-                    {selExObj.prescribedRir} RIR
-                </div>
-            </div>
-        )}
 
         {prev?.sets?.length > 0 && (
             <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-4">
