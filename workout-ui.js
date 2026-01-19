@@ -559,7 +559,6 @@ const handleTouchEnd = (e, index) => {
                     const prog = window.getProgression(selEx, exercises, workouts, muscleReadiness, systemicReadiness, weeklyStimulus);
                     
                     return (
-                        <>
                             {prog && prog.advice !== 'first_time' && (
                                 <div className={`border-2 rounded-lg p-4 mb-4 ${
                                     prog.readiness === 'deload' ? 'bg-orange-100 border-orange-300' :
