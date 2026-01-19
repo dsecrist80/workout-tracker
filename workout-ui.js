@@ -37,6 +37,7 @@ function WorkoutTracker() {
     const [timerActive, setTimerActive] = useState(false);
     const [repsRef, setRepsRef] = useState(null);
     const [rirRef, setRirRef] = useState(null);
+    const [swipeStart, setSwipeStart] = useState(null);
     
     // State - Programs
     const [progName, setProgName] = useState('');
@@ -254,7 +255,24 @@ function WorkoutTracker() {
         setTimerActive(true);
         if (repsRef) setTimeout(() => repsRef.focus(), 100);
     };
+const handleTouchStart = (e, index) => {
+    setSwipeStart({ x: e.touches[0].clientX, index });
+};
 
+const handleTouchEnd = (e, index) => {
+    if (!swipeStart || swipeStart.index !== index) return;
+    
+    const swipeEnd = e.changedTouches[0].clientX;
+    const swipeDistance = swipeStart.x - swipeEnd;
+    
+    // If swiped left more than 50px, delete the set
+    if (swipeDistance > 50) {
+        setSets(sets.filter((_, idx) => idx !== index));
+    }
+    
+    setSwipeStart(null);
+};
+    
     const addToSess = () => {
         if (!selEx || sets.length === 0) return alert('Select exercise and add sets');
         const ex = exercises.find(e => e.id == selEx);
@@ -591,10 +609,21 @@ function WorkoutTracker() {
                                 </div>
                             )}
 
-                            {sets.length > 0 && (
-                                <div className="bg-slate-50 p-4 rounded-lg mb-4 border-2">
-                                    {sets.map((s, i) => (
-                                        <div key={i} className="flex justify-between items-center text-base mb-2 py-2 border-b last:border-b-0">
+                           {sets.length > 0 && (
+    <div className="bg-slate-50 p-4 rounded-lg mb-4 border-2">
+        {sets.map((s, i) => (
+            <div 
+                key={i} 
+                className="flex justify-between items-center text-base mb-2 py-2 border-b last:border-b-0 touch-pan-y"
+                onTouchStart={(e) => handleTouchStart(e, i)}
+                onTouchEnd={(e) => handleTouchEnd(e, i)}
+            >
+                <span className="font-semibold">Set {i+1}: {s.w}lb × {s.r} @ {s.rir}RIR</span>
+                <button onClick={() => setSets(sets.filter((_, idx) => idx !== i))} className="text-red-500 text-2xl px-2">×</button>
+            </div>
+        ))}
+    </div>
+)}
                                             <span className="font-semibold">Set {i+1}: {s.w}lb × {s.r} @ {s.rir}RIR</span>
                                             <button onClick={() => setSets(sets.filter((_, idx) => idx !== i))} className="text-red-500 text-2xl px-2">×</button>
                                         </div>
