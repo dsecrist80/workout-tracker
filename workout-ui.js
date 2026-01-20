@@ -118,12 +118,26 @@ function WorkoutTracker() {
 
     const load = async (col, setter, defaultFn) => {
         try {
-            const snap = await window.dbGetDocs(window.dbCollection(window.db, col));
-            if (!snap.empty) {
-                snap.forEach(d => { if (d.data().items) setter(d.data().items); });
-            } else if (defaultFn) defaultFn();
+            console.log('Loading from collection:', col);
+            const docRef = window.dbDoc(window.db, col, 'data');
+            const docSnap = await window.dbGetDocs(window.dbCollection(window.db, col));
+            
+            let found = false;
+            docSnap.forEach(d => {
+                console.log('Found doc:', d.id, 'in', col);
+                if (d.id === 'data' && d.data().items) {
+                    console.log('Loading items from data doc:', d.data().items);
+                    setter(d.data().items);
+                    found = true;
+                }
+            });
+            
+            if (!found && defaultFn) {
+                console.log('No data found, running default function');
+                defaultFn();
+            }
         } catch(e) {
-            console.error(e);
+            console.error('Load error for', col, ':', e);
             if (defaultFn) defaultFn();
         }
     };
