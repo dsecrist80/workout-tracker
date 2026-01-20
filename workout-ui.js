@@ -296,15 +296,24 @@ function WorkoutTracker() {
     };
 
     const finish = () => {
+        console.log('=== FINISH CALLED ===');
         if (session.length === 0) return alert('Add exercises');
+        
         const w = [...session.map(e => ({ ...e, date })), ...workouts];
+        console.log('Workouts to save:', w);
+        console.log('User ID:', userId);
+        
         setWorkouts(w);
+        
+        console.log('About to call saveUserData...');
         saveUserData('workouts', w);
         
         const result = window.updateFatigueFromSession(session, date, {
             localFatigue, systemicFatigue, weeklyStimulus, 
             perceivedFatigue, muscleSoreness, lastWorkoutDate
         });
+        
+        console.log('Fatigue result:', result);
         
         setLocalFatigue(result.localFatigue);
         setSystemicFatigue(result.systemicFatigue);
@@ -313,7 +322,9 @@ function WorkoutTracker() {
         setSystemicReadiness(result.systemicReadiness);
         setLastWorkoutDate(result.lastWorkoutDate);
         
+        console.log('About to call saveFatigueState...');
         saveFatigueState();
+        
         setSession([]);
         
         if (activeProgram) {
@@ -324,6 +335,7 @@ function WorkoutTracker() {
             } catch(e) {}
         }
         alert('Saved!');
+        console.log('=== FINISH COMPLETE ===');
     };
 
     const handleExSelect = (exId) => {
