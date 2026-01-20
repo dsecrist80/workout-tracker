@@ -94,15 +94,26 @@ function WorkoutTracker() {
     // Database functions
     const save = async (col, data) => {
         try {
+            console.log('Saving to', col, 'with data:', data);
             await window.dbSetDoc(window.dbDoc(window.db, col, 'data'), { items: data });
-        } catch(e) { console.error(e); }
+            console.log('Save successful to', col);
+        } catch(e) { 
+            console.error('Save error:', e); 
+        }
     };
 
     const saveUserData = async (col, data) => {
-        if (!userId) return;
+        if (!userId) {
+            console.error('No userId - cannot save');
+            return;
+        }
         try {
+            console.log('Saving user data to', col, 'for user', userId, 'with data:', data);
             await window.dbSetDoc(window.dbDoc(window.db, col, userId), { items: data, userId });
-        } catch(e) { console.error(e); }
+            console.log('User data save successful to', col);
+        } catch(e) { 
+            console.error('User save error:', e); 
+        }
     };
 
     const load = async (col, setter, defaultFn) => {
