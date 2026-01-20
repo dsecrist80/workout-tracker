@@ -55,6 +55,12 @@ function WorkoutTracker() {
     const [lastWorkoutDate, setLastWorkoutDate] = useState(null);
     const [swipeStart, setSwipeStart] = useState(null);
 
+    // State - Editing
+    const [editingSet, setEditingSet] = useState(null);
+    const [editingSessionEx, setEditingSessionEx] = useState(null);
+    const [editingExercise, setEditingExercise] = useState(null);
+    const [editingProgram, setEditingProgram] = useState(null);
+
     // Initialize
     useEffect(() => {
         const init = () => {
@@ -271,6 +277,34 @@ function WorkoutTracker() {
         save('exercises', updated);
     };
 
+const startEditEx = (ex) => {
+        setEditingExercise(ex.id);
+        setName(ex.name);
+        setType(ex.type);
+        setAxial(ex.axial);
+        setPrim(ex.prim || []);
+        setSec(ex.sec || []);
+        setTer(ex.ter || []);
+    };
+
+    const saveEditEx = () => {
+        if (!name || prim.length === 0) return alert('Enter name and select primary muscles');
+        const updated = exercises.map(e => 
+            e.id === editingExercise 
+                ? { ...e, name, type, axial, prim, sec, ter }
+                : e
+        );
+        setExercises(updated);
+        save('exercises', updated);
+        setEditingExercise(null);
+        setName(''); setPrim([]); setSec([]); setTer([]); setAxial(false); setShowAdv(false);
+    };
+
+    const cancelEditEx = () => {
+        setEditingExercise(null);
+        setName(''); setPrim([]); setSec([]); setTer([]); setAxial(false); setShowAdv(false);
+    };
+    
     // Session functions
     const addSet = () => {
         if (!input.w || !input.r || input.rir === '') return alert('Fill all fields');
@@ -396,6 +430,40 @@ function WorkoutTracker() {
         alert('Program saved!');
     };
 
+const startEditProgram = (prog) => {
+        setEditingProgram(prog.id);
+        setProgName(prog.name);
+        setProgDays(prog.days);
+    };
+
+    const saveEditProgram = () => {
+        if (!progName || progDays.length === 0) return alert('Add program name and days');
+        const updated = programs.map(p => 
+            p.id === editingProgram 
+                ? { ...p, name: progName, days: progDays }
+                : p
+        );
+        setPrograms(updated);
+        save('programs', updated);
+        setEditingProgram(null);
+        setProgName('');
+        setProgDays([]);
+        alert('Program updated!');
+    };
+
+    const cancelEditProgram = () => {
+        setEditingProgram(null);
+        setProgName('');
+        setProgDays([]);
+    };
+
+    const deleteProgram = (progId) => {
+        if (!confirm('Delete this program?')) return;
+        const updated = programs.filter(p => p.id !== progId);
+        setPrograms(updated);
+        save('programs', updated);
+    };
+    
     const startProgram = (progId) => {
         const prog = programs.find(p => p.id === progId);
         if (!prog) return;
@@ -647,14 +715,42 @@ function WorkoutTracker() {
 
                             {sets.length > 0 && (
                                 <div className="bg-slate-50 p-4 rounded-lg mb-4 border-2">
-                                    {sets.map((s, i) => (
-                                        <div key={i} className="flex justify-between items-center text-base mb-2 py-2 border-b last:border-b-0" onTouchStart={(e) => handleTouchStart(e, i)} onTouchEnd={(e) => handleTouchEnd(e, i)}>
-                                            <span className="font-semibold">Set {i+1}: {s.w}lb × {s.r} @ {s.rir}RIR</span>
-                                            <button onClick={() => setSets(sets.filter((_, idx) => idx !== i))} className="text-red-500 text-2xl px-2">×</button>
-                                        </div>
+                                   {sets.map((s, i) => (
+                                        editingSet === i ? (
+                                            <div key={i} className="border-2 border-blue-300 rounded p-2 mb-2">
+                                                <div className="grid grid-cols-3 gap-2 mb-2">
+                                                    <input type="number" step="0.5" value={input.w} onChange={(e) => setInput({...input, w: e.target.value})} className="px-2 py-1 border rounded text-center" placeholder="lbs" />
+                                                    <input type="number" value={input.r} onChange={(e) => setInput({...input, r: e.target.value})} className="px-2 py-1 border rounded text-center" placeholder="reps" />
+                                                    <input type="number" value={input.rir} onChange={(e) => setInput({...input, rir: e.target.value})} className="px-2 py-1 border rounded text-center" placeholder="RIR" />
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <button onClick={() => {
+                                                        if (!input.w || !input.r || input.rir === '') return alert('Fill all fields');
+                                                        const updated = [...sets];
+                                                        updated[i] = { w: parseFloat(input.w), r: parseInt(input.r), rir: parseInt(input.rir) };
+                                                        setSets(updated);
+                                                        setEditingSet(null);
+                                                        setInput({ w: '', r: '', rir: '' });
+                                                    }} className="flex-1 bg-green-600 text-white py-1 rounded text-sm">Save</button>
+                                                    <button onClick={() => {
+                                                        setEditingSet(null);
+                                                        setInput({ w: '', r: '', rir: '' });
+                                                    }} className="flex-1 bg-gray-400 text-white py-1 rounded text-sm">Cancel</button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div key={i} className="flex justify-between items-center text-base mb-2 py-2 border-b last:border-b-0" onTouchStart={(e) => handleTouchStart(e, i)} onTouchEnd={(e) => handleTouchEnd(e, i)}>
+                                                <span className="font-semibold">Set {i+1}: {s.w}lb × {s.r} @ {s.rir}RIR</span>
+                                                <div className="flex gap-2">
+                                                    <button onClick={() => {
+                                                        setEditingSet(i);
+                                                        setInput({ w: s.w.toString(), r: s.r.toString(), rir: s.rir.toString() });
+                                                    }} className="text-blue-500 text-lg">✏️</button>
+                                                    <button onClick={() => setSets(sets.filter((_, idx) => idx !== i))} className="text-red-500 text-2xl px-2">×</button>
+                                                </div>
+                                            </div>
+                                        )
                                     ))}
-                                </div>
-                            )}
 
                             <div className="grid grid-cols-3 gap-3 mb-4">
                                 <div>
@@ -708,9 +804,16 @@ function WorkoutTracker() {
                     <h2 className="text-2xl font-bold">Session ({session.length})</h2>
                     <button onClick={finish} className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold text-lg">Finish</button>
                 </div>
-                {session.map((ex, i) => (
+              {session.map((ex, i) => (
                     <div key={i} className="border-2 p-4 rounded-lg mb-3 bg-slate-50">
-                        <div className="font-bold text-lg mb-2">{ex.name}</div>
+                        <div className="flex justify-between items-start mb-2">
+                            <div className="font-bold text-lg">{ex.name}</div>
+                            <button onClick={() => {
+                                if (confirm(`Remove ${ex.name} from session?`)) {
+                                    setSession(session.filter((_, idx) => idx !== i));
+                                }
+                            }} className="text-red-500 text-xl">×</button>
+                        </div>
                         {ex.sets.map((s, j) => <div key={j} className="text-sm py-1">Set {j+1}: {s.w}lb × {s.r} @ {s.rir}RIR</div>)}
                     </div>
                 ))}
@@ -765,7 +868,14 @@ function WorkoutTracker() {
                 </>
             )}
 
-            <button onClick={saveEx} className="w-full bg-blue-600 text-white py-2 rounded">Save Exercise</button>
+            {editingExercise ? (
+                <div className="flex gap-2">
+                    <button onClick={saveEditEx} className="flex-1 bg-green-600 text-white py-2 rounded">Update Exercise</button>
+                    <button onClick={cancelEditEx} className="flex-1 bg-gray-400 text-white py-2 rounded">Cancel</button>
+                </div>
+            ) : (
+                <button onClick={saveEx} className="w-full bg-blue-600 text-white py-2 rounded">Save Exercise</button>
+            )}
         </div>
 
         <div>
@@ -777,18 +887,18 @@ function WorkoutTracker() {
                 }} className="text-blue-600 underline text-sm">Load Presets</button>
             </div>
             <h2 className="font-bold mb-3">All Exercises ({exercises.length})</h2>
-            {exercises.map(ex => (
-                <div key={ex.id} className="border p-3 rounded mb-2 flex justify-between">
+           {exercises.map(ex => (
+                <div key={ex.id} className="border p-3 rounded mb-2 flex justify-between items-center">
                     <div>
                         <div className="font-semibold">{ex.name}</div>
                         <div className="text-xs text-slate-600">{ex.prim.join(', ')}</div>
                     </div>
-                    <button onClick={() => delEx(ex.id)} className="text-red-500">🗑️</button>
+                    <div className="flex gap-2">
+                        <button onClick={() => startEditEx(ex)} className="text-blue-500 text-lg">✏️</button>
+                        <button onClick={() => delEx(ex.id)} className="text-red-500">🗑️</button>
+                    </div>
                 </div>
             ))}
-        </div>
-    </div>
-)}
 
 {view === 'history' && (
     <div className="bg-white rounded-lg shadow-xl p-4 sm:p-6">
@@ -977,7 +1087,14 @@ function WorkoutTracker() {
                 </div>
             )}
 
-            <button onClick={saveProgram} className="w-full bg-blue-600 text-white py-4 rounded-lg font-bold text-lg" disabled={progDays.length === 0}>Save Program</button>
+            {editingProgram ? (
+                <div className="flex gap-2">
+                    <button onClick={saveEditProgram} className="flex-1 bg-green-600 text-white py-4 rounded-lg font-bold text-lg" disabled={progDays.length === 0}>Update Program</button>
+                    <button onClick={cancelEditProgram} className="flex-1 bg-gray-400 text-white py-4 rounded-lg font-bold text-lg">Cancel</button>
+                </div>
+            ) : (
+                <button onClick={saveProgram} className="w-full bg-blue-600 text-white py-4 rounded-lg font-bold text-lg" disabled={progDays.length === 0}>Save Program</button>
+            )}
         </div>
 
         <div>
@@ -990,8 +1107,28 @@ function WorkoutTracker() {
                         <div key={prog.id} className="border-2 p-5 rounded-lg hover:shadow-md transition-shadow">
                             <div className="flex justify-between items-start mb-4">
                                 <div className="font-bold text-xl">{prog.name}</div>
-                                <button 
-                                    onClick={() => startProgram(prog.id)} 
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => startEditProgram(prog)} 
+                                        className="text-blue-500 text-xl"
+                                    >
+                                        ✏️
+                                    </button>
+                                    <button 
+                                        onClick={() => deleteProgram(prog.id)} 
+                                        className="text-red-500 text-xl"
+                                    >
+                                        🗑️
+                                    </button>
+                                    <button 
+                                        onClick={() => startProgram(prog.id)} 
+                                        className="bg-green-600 text-white px-5 py-2 rounded-lg text-base font-semibold"
+                                        disabled={activeProgram && activeProgram.id === prog.id}
+                                    >
+                                        {activeProgram && activeProgram.id === prog.id ? '✓ Active' : 'Start'}
+                                    </button>
+                                </div>
+                            </div> 
                                     className="bg-green-600 text-white px-5 py-2 rounded-lg text-base font-semibold"
                                     disabled={activeProgram && activeProgram.id === prog.id}
                                 >
