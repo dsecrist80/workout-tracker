@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Workout Logger</title>
+    <title>Workout Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body>
@@ -31,6 +31,7 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         
+        // Make Firebase available globally for the app
         window.db = db;
         window.dbCollection = collection;
         window.dbGetDocs = getDocs;
@@ -40,10 +41,45 @@
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
     
-    <!-- App Logic -->
-    <script type="text/babel" src="workout-logic.js"></script>
+    <!-- Constants -->
+    <script type="text/babel" src="src/constants/muscles.js"></script>
+    <script type="text/babel" src="src/constants/exerciseTypes.js"></script>
+    <script type="text/babel" src="src/constants/config.js"></script>
     
-    <!-- App UI -->
-    <script type="text/babel" src="workout-ui.js"></script>
+    <!-- Utils -->
+    <script type="text/babel" src="src/utils/dateHelpers.js"></script>
+    <script type="text/babel" src="src/utils/muscleGroups.js"></script>
+    <script type="text/babel" src="src/utils/exercisePresets.js"></script>
+    <script type="text/babel" src="src/utils/fatigueCalculations.js"></script>
+    <script type="text/babel" src="src/utils/progressionLogic.js"></script>
+    <script type="text/babel" src="src/utils/volumeAnalysis.js"></script>
+    
+    <!-- Services -->
+    <script type="text/babel" src="src/services/storage.js"></script>
+    <script type="text/babel" src="src/services/database.js"></script>
+    
+    <!-- Hooks -->
+    <script type="text/babel" src="src/hooks/useAuth.js"></script>
+    <script type="text/babel" src="src/hooks/useRestTimer.js"></script>
+    <script type="text/babel" src="src/hooks/useExercises.js"></script>
+    <script type="text/babel" src="src/hooks/useWorkouts.js"></script>
+    <script type="text/babel" src="src/hooks/usePrograms.js"></script>
+    <script type="text/babel" src="src/hooks/useFatigue.js"></script>
+    
+    <!-- Shared Components -->
+    <script type="text/babel" src="src/components/shared/SetEditor.jsx"></script>
+    <script type="text/babel" src="src/components/shared/ProgressionCard.jsx"></script>
+    <script type="text/babel" src="src/components/shared/MuscleReadiness.jsx"></script>
+    
+    <!-- View Components -->
+    <script type="text/babel" src="src/components/LoginScreen.jsx"></script>
+    <script type="text/babel" src="src/components/SessionView.jsx"></script>
+    <script type="text/babel" src="src/components/HistoryView.jsx"></script>
+    <script type="text/babel" src="src/components/RecoveryView.jsx"></script>
+    <script type="text/babel" src="src/components/ExercisesView.jsx"></script>
+    <script type="text/babel" src="src/components/ProgramsView.jsx"></script>
+    
+    <!-- Main App -->
+    <script type="text/babel" src="src/App.jsx"></script>
 </body>
 </html>
