@@ -1,6 +1,6 @@
-// constants/exercisePresets.js
+// utils/exercisePresets.js
 // =====================================================
-// Default Exercise Library
+// Default Exercise Library - Utility Functions
 // =====================================================
 
 /**
@@ -431,9 +431,74 @@ export function getIsolationExercises(exercises = EXERCISE_PRESETS) {
 }
 
 /**
+ * Helper function to group exercises by muscle for UI display
+ */
+export function groupExercisesByMuscle(exercises = EXERCISE_PRESETS) {
+  const grouped = {};
+  
+  exercises.forEach(ex => {
+    ex.prim.forEach(muscle => {
+      if (!grouped[muscle]) {
+        grouped[muscle] = [];
+      }
+      grouped[muscle].push(ex);
+    });
+  });
+  
+  // Sort alphabetically by muscle name
+  return Object.keys(grouped)
+    .sort()
+    .reduce((acc, muscle) => {
+      acc[muscle] = grouped[muscle];
+      return acc;
+    }, {});
+}
+
+/**
+ * Helper function to search exercises by name
+ */
+export function searchExercises(query, exercises = EXERCISE_PRESETS) {
+  const lowerQuery = query.toLowerCase();
+  return exercises.filter(ex => 
+    ex.name.toLowerCase().includes(lowerQuery)
+  );
+}
+
+/**
+ * Helper function to get exercises by axial loading
+ */
+export function getAxialLoadedExercises(exercises = EXERCISE_PRESETS) {
+  return exercises.filter(ex => ex.axial === true);
+}
+
+/**
  * Helper function to load preset exercises
  * (Maintains backward compatibility with original code)
  */
 export function loadPresets() {
-  return EXERCISE_PRESETS;
+  return [...EXERCISE_PRESETS];
+}
+
+/**
+ * Helper to validate exercise structure
+ */
+export function validateExercise(exercise) {
+  const required = ['id', 'name', 'type', 'prim'];
+  const missing = required.filter(field => !exercise[field]);
+  
+  if (missing.length > 0) {
+    return {
+      valid: false,
+      errors: missing.map(field => `Missing required field: ${field}`)
+    };
+  }
+  
+  if (!Array.isArray(exercise.prim) || exercise.prim.length === 0) {
+    return {
+      valid: false,
+      errors: ['Primary muscles must be a non-empty array']
+    };
+  }
+  
+  return { valid: true, errors: [] };
 }
