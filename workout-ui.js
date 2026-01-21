@@ -715,10 +715,9 @@ const startEditProgram = (prog) => {
 
                             {sets.length > 0 && (
                                 <div className="bg-slate-50 p-4 rounded-lg mb-4 border-2">
-                                   {sets.map((s, i) => (
+                                    {sets.map((s, i) => (
                                         editingSet === i ? (
                                             <div key={i} className="border-2 border-blue-300 rounded p-2 mb-2">
-                                       </div>
                                                 <div className="grid grid-cols-3 gap-2 mb-2">
                                                     <input type="number" step="0.5" value={input.w} onChange={(e) => setInput({...input, w: e.target.value})} className="px-2 py-1 border rounded text-center" placeholder="lbs" />
                                                     <input type="number" value={input.r} onChange={(e) => setInput({...input, r: e.target.value})} className="px-2 py-1 border rounded text-center" placeholder="reps" />
@@ -752,6 +751,8 @@ const startEditProgram = (prog) => {
                                             </div>
                                         )
                                     ))}
+                                </div>
+                            )}
 
                             <div className="grid grid-cols-3 gap-3 mb-4">
                                 <div>
