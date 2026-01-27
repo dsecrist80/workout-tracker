@@ -12,6 +12,10 @@ import { useExercises } from './hooks/useExercises';
 import { usePrograms } from './hooks/usePrograms';
 import { useFatigue } from './hooks/useFatigue';
 import { useRestTimer } from './hooks/useRestTimer';
+import { useSettings } from './hooks/useSettings';
+
+// Services
+import { databaseService } from './services/database';
 
 // Components
 import { LoginScreen } from './components/LoginScreen';
@@ -20,6 +24,7 @@ import { HistoryView } from './components/HistoryView';
 import { RecoveryView } from './components/RecoveryView';
 import { ExercisesView } from './components/ExercisesView';
 import { ProgramsView } from './components/ProgramsView';
+import { SettingsView } from './components/SettingsView';
 
 /**
  * Main Application Component
@@ -27,15 +32,20 @@ import { ProgramsView } from './components/ProgramsView';
 export default function App() {
   // View state
   const [view, setView] = useState('session');
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Authentication
-  const { userId, username, isAuthenticated, isLoading: authLoading, login, logout } = useAuth();
+const { userId, username, isAuthenticated, isLoading: authLoading, login, register, logout } = useAuth();
+
+  // Settings (pass userId)
+  const { settings, updateSetting, resetSettings, themeColors, currentTheme } = useSettings(userId);
 
   // Data hooks
   const { 
     workouts, 
-    addSession, 
-    getWorkoutsForExercise 
+    addSession,
+    getWorkoutsForExercise,
+    deleteWorkout: removeWorkout
   } = useWorkouts(userId);
 
   const {
@@ -67,20 +77,55 @@ export default function App() {
     systemicReadiness,
     lastWorkoutDate,
     processWorkoutSession
-  } = useFatigue(userId);
+  } = useFatigue(userId, workouts);
 
   // Rest timer
   const restTimer = useRestTimer();
 
   /**
+   * Handle workout update
+   */
+  const handleUpdateWorkout = (updatedWorkout) => {
+    const updated = workouts.map(w => 
+      w.timestamp === updatedWorkout.timestamp ? updatedWorkout : w
+    );
+    // Save to database
+    databaseService.saveUserData('workouts', updated, userId);
+  };
+
+  /**
+   * Handle workout deletion
+   */
+  const handleDeleteWorkout = async (timestamp) => {
+    await removeWorkout(timestamp);
+  };
+
+  /**
    * Handle session completion
    */
   const handleSessionComplete = async (session, date, perceivedFatigue, muscleSoreness) => {
-    // Save workout session
-    await addSession(session, date);
-
-    // Update fatigue
-    await processWorkoutSession(session, date);
+    // Check if current day is a rest day
+    const currentDay = getCurrentDay();
+    const isRestDay = currentDay?.isRestDay || false;
+    
+    // Prepare program context for fatigue calculations
+    const programContext = activeProgram ? {
+      activeProgram,
+      currentDayIndex,
+      lastDayIndex: currentDayIndex > 0 ? currentDayIndex - 1 : activeProgram.days.length - 1,
+      isRestDay
+    } : null;
+    
+    // If rest day, just apply recovery
+    if (isRestDay) {
+      await processWorkoutSession([], date, { perceivedFatigue, muscleSoreness }, programContext);
+    } else {
+      // Save workout session with program context
+      await addSession(session, date);
+      
+      // Update fatigue with program context
+      await processWorkoutSession(session, date, { perceivedFatigue, muscleSoreness }, programContext);
+    }
 
     // Advance program day if active
     if (activeProgram) {
@@ -96,11 +141,10 @@ export default function App() {
     
     if (!currentDay) {
       alert('No program day to load');
-      return;
+      return null;
     }
 
-    alert(`Loaded: ${currentDay.name} (Day ${currentDayIndex + 1}/${activeProgram.days.length})`);
-    // Note: In SessionView, this will pre-populate the exercise selector
+    return currentDay;
   };
 
   // Loading state
@@ -119,10 +163,32 @@ export default function App() {
 
   // Main app interface
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 p-4">
+    <div className={`min-h-screen p-4 transition-colors duration-300 ${
+      // Dynamic background based on theme
+      settings.themeColor === 'blue' ? 'bg-gradient-to-br from-slate-900 to-blue-900' :
+      settings.themeColor === 'green' ? 'bg-gradient-to-br from-slate-900 to-green-900' :
+      settings.themeColor === 'purple' ? 'bg-gradient-to-br from-slate-900 to-purple-900' :
+      settings.themeColor === 'orange' ? 'bg-gradient-to-br from-slate-900 to-orange-900' :
+      settings.themeColor === 'red' ? 'bg-gradient-to-br from-slate-900 to-red-900' :
+      settings.themeColor === 'indigo' ? 'bg-gradient-to-br from-slate-900 to-indigo-900' :
+      settings.themeColor === 'pink' ? 'bg-gradient-to-br from-slate-900 to-pink-900' :
+      settings.themeColor === 'teal' ? 'bg-gradient-to-br from-slate-900 to-teal-900' :
+      'bg-gradient-to-br from-slate-900 to-slate-800'
+    }`}>
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="flex justify-between items-center mb-4">
+          {/* Hamburger Menu Button */}
+          <button
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="text-white p-2 hover:bg-slate-700 rounded-lg transition-colors"
+            aria-label="Menu"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+
           <div className="text-white">
             <span className="text-sm opacity-75">Logged in as:</span>
             <span className="ml-2 font-semibold">{username}</span>
@@ -135,59 +201,132 @@ export default function App() {
           </button>
         </div>
 
-        {/* Navigation */}
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          <button
-            onClick={() => setView('session')}
-            className={`py-4 rounded-lg font-semibold text-lg transition-colors ${
-              view === 'session'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            Session
-          </button>
-          <button
-            onClick={() => setView('history')}
-            className={`py-4 rounded-lg font-semibold text-lg transition-colors ${
-              view === 'history'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            History
-          </button>
-          <button
-            onClick={() => setView('recovery')}
-            className={`py-3 rounded-lg font-semibold transition-colors ${
-              view === 'recovery'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            Recovery
-          </button>
-          <button
-            onClick={() => setView('exercises')}
-            className={`py-3 rounded-lg font-semibold transition-colors ${
-              view === 'exercises'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            Exercises
-          </button>
-          <button
-            onClick={() => setView('programs')}
-            className={`py-3 rounded-lg font-semibold col-span-2 transition-colors ${
-              view === 'programs'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            Programs
-          </button>
-        </div>
+        {/* Slide-out Menu */}
+        {menuOpen && (
+          <>
+            {/* Backdrop */}
+            <div
+              className="fixed inset-0 bg-black bg-opacity-50 z-40 animate-fadeIn"
+              onClick={() => setMenuOpen(false)}
+            ></div>
+
+            {/* Menu Panel */}
+            <div className="fixed top-0 left-0 h-full w-64 bg-white shadow-2xl z-50 flex flex-col animate-slideInLeft">
+              {/* Menu Header */}
+              <div className="p-4 border-b flex justify-between items-center">
+                <h2 className="font-bold text-xl">Menu</h2>
+                <button
+                  onClick={() => setMenuOpen(false)}
+                  className="text-gray-500 hover:text-gray-700 text-2xl transition-transform hover:rotate-90"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Menu Items */}
+              <nav className="flex-1 overflow-y-auto py-4 stagger-children">
+                <button
+                  onClick={() => {
+                    setView('session');
+                    setMenuOpen(false);
+                  }}
+                  className={`w-full text-left px-6 py-4 font-semibold transition-colors flex items-center gap-3 ${
+                    view === 'session'
+                      ? `${currentTheme.light} ${currentTheme.text} border-l-4 ${currentTheme.primary.split(' ')[0].replace('bg-', 'border-')}`
+                      : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="text-xl">💪</span>
+                  <span>Session</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setView('history');
+                    setMenuOpen(false);
+                  }}
+                  className={`w-full text-left px-6 py-4 font-semibold transition-colors flex items-center gap-3 ${
+                    view === 'history'
+                      ? `${currentTheme.light} ${currentTheme.text} border-l-4 ${currentTheme.primary.split(' ')[0].replace('bg-', 'border-')}`
+                      : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="text-xl">📊</span>
+                  <span>History</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setView('recovery');
+                    setMenuOpen(false);
+                  }}
+                  className={`w-full text-left px-6 py-4 font-semibold transition-colors flex items-center gap-3 ${
+                    view === 'recovery'
+                      ? `${currentTheme.light} ${currentTheme.text} border-l-4 ${currentTheme.primary.split(' ')[0].replace('bg-', 'border-')}`
+                      : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="text-xl">❤️</span>
+                  <span>Recovery</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setView('exercises');
+                    setMenuOpen(false);
+                  }}
+                  className={`w-full text-left px-6 py-4 font-semibold transition-colors flex items-center gap-3 ${
+                    view === 'exercises'
+                      ? `${currentTheme.light} ${currentTheme.text} border-l-4 ${currentTheme.primary.split(' ')[0].replace('bg-', 'border-')}`
+                      : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="text-xl">🏋️</span>
+                  <span>Exercises</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setView('programs');
+                    setMenuOpen(false);
+                  }}
+                  className={`w-full text-left px-6 py-4 font-semibold transition-colors flex items-center gap-3 ${
+                    view === 'programs'
+                      ? `${currentTheme.light} ${currentTheme.text} border-l-4 ${currentTheme.primary.split(' ')[0].replace('bg-', 'border-')}`
+                      : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="text-xl">📅</span>
+                  <span>Programs</span>
+                </button>
+
+                <div className="my-2 border-t"></div>
+
+                <button
+                  onClick={() => {
+                    setView('settings');
+                    setMenuOpen(false);
+                  }}
+                  className={`w-full text-left px-6 py-4 font-semibold transition-colors flex items-center gap-3 ${
+                    view === 'settings'
+                      ? `${currentTheme.light} ${currentTheme.text} border-l-4 ${currentTheme.primary.split(' ')[0].replace('bg-', 'border-')}`
+                      : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="text-xl">⚙️</span>
+                  <span>Settings</span>
+                </button>
+              </nav>
+
+              {/* Menu Footer */}
+              <div className="p-4 border-t bg-slate-50">
+                <div className="text-xs text-slate-600 text-center">
+                  Workout Tracker v1.0
+                </div>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* View Content */}
         {view === 'session' && (
@@ -199,15 +338,21 @@ export default function App() {
             weeklyStimulus={weeklyStimulus}
             activeProgram={activeProgram}
             currentDayIndex={currentDayIndex}
+            getCurrentDay={getCurrentDay}
             onSessionComplete={handleSessionComplete}
             onLoadProgramDay={handleLoadProgramDay}
             useRestTimer={() => restTimer}
+            settings={settings}
+            theme={currentTheme}
           />
         )}
 
         {view === 'history' && (
           <HistoryView
             workouts={workouts}
+            onUpdateWorkout={handleUpdateWorkout}
+            onDeleteWorkout={handleDeleteWorkout}
+            theme={currentTheme}
           />
         )}
 
@@ -219,6 +364,7 @@ export default function App() {
             localFatigue={localFatigue}
             lastWorkoutDate={lastWorkoutDate}
             workouts={workouts}
+            theme={currentTheme}
           />
         )}
 
@@ -229,6 +375,7 @@ export default function App() {
             onUpdateExercise={updateExercise}
             onDeleteExercise={deleteExercise}
             onResetToPresets={resetToPresets}
+            theme={currentTheme}
           />
         )}
 
@@ -243,13 +390,23 @@ export default function App() {
             onDeleteProgram={deleteProgram}
             onStartProgram={startProgram}
             onStopProgram={stopProgram}
+            theme={currentTheme}
+          />
+        )}
+
+        {view === 'settings' && (
+          <SettingsView
+            settings={settings}
+            onUpdateSetting={updateSetting}
+            onResetSettings={resetSettings}
+            themeColors={themeColors}
           />
         )}
       </div>
 
       {/* Active Program Indicator */}
       {activeProgram && (
-        <div className="fixed bottom-4 right-4 bg-purple-600 text-white px-4 py-3 rounded-lg shadow-lg">
+        <div className={`fixed bottom-4 right-4 text-white px-4 py-3 rounded-lg shadow-lg ${currentTheme.primary.split(' ')[0]}`}>
           <div className="text-xs font-semibold opacity-90">Active Program</div>
           <div className="font-bold">{activeProgram.name}</div>
           <div className="text-xs opacity-75">

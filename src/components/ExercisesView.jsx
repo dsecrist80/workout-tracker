@@ -3,7 +3,7 @@
 // Exercise Library Management Component
 // =====================================================
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { MUSCLES } from '../constants/muscles';
 import { TYPES } from '../constants/exerciseTypes';
 
@@ -15,7 +15,8 @@ export function ExercisesView({
   onAddExercise,
   onUpdateExercise,
   onDeleteExercise,
-  onResetToPresets
+  onResetToPresets,
+  theme
 }) {
   const [name, setName] = useState('');
   const [type, setType] = useState('compound_upper');
@@ -26,6 +27,9 @@ export function ExercisesView({
   const [showAdv, setShowAdv] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Ref for scrolling to form
+  const formRef = useRef(null);
 
   /**
    * Toggle muscle selection
@@ -80,6 +84,11 @@ export function ExercisesView({
     setSec(ex.sec || []);
     setTer(ex.ter || []);
     setShowAdv(ex.sec?.length > 0 || ex.ter?.length > 0);
+    
+    // Scroll to form
+    setTimeout(() => {
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
   };
 
   /**
@@ -132,11 +141,11 @@ export function ExercisesView({
   );
 
   return (
-    <div className="bg-white rounded-lg shadow-xl p-6">
+    <div className="bg-white rounded-lg shadow-xl p-6 animate-fadeIn">
       <h1 className="text-2xl font-bold mb-4">Exercise Library</h1>
 
       {/* Exercise Form */}
-      <div className="space-y-3 mb-6 pb-6 border-b">
+      <div ref={formRef} className="space-y-3 mb-6 pb-6 border-b">
         <input
           type="text"
           value={name}
@@ -179,7 +188,7 @@ export function ExercisesView({
                 onClick={() => toggle(m, 'primary')}
                 className={`px-2 py-1 text-sm rounded border ${
                   prim.includes(m)
-                    ? 'bg-blue-600 text-white'
+                    ? `${theme?.primary || 'bg-blue-600 hover:bg-blue-700'} text-white`
                     : 'bg-white hover:bg-slate-50'
                 }`}
               >
@@ -192,7 +201,7 @@ export function ExercisesView({
         {/* Advanced Toggle */}
         <button
           onClick={() => setShowAdv(!showAdv)}
-          className="text-sm text-blue-600 hover:text-blue-700"
+          className={`text-sm ${theme?.accent || 'text-blue-600'} hover:opacity-80`}
         >
           {showAdv ? 'Hide' : '+ Add'} Secondary/Tertiary
         </button>
@@ -262,7 +271,7 @@ export function ExercisesView({
         ) : (
           <button
             onClick={handleSave}
-            className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
+            className={`w-full text-white py-2 rounded ${theme?.primary || 'bg-blue-600 hover:bg-blue-700'}`}
           >
             Save Exercise
           </button>
@@ -277,7 +286,7 @@ export function ExercisesView({
           </h2>
           <button
             onClick={onResetToPresets}
-            className="text-blue-600 underline text-sm hover:text-blue-700"
+            className={`underline text-sm ${theme?.accent || 'text-blue-600'} hover:opacity-80`}
           >
             Load Presets
           </button>
@@ -302,11 +311,11 @@ export function ExercisesView({
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-2 stagger-children">
             {filteredExercises.map(ex => (
               <div
                 key={ex.id}
-                className="border p-3 rounded flex justify-between items-center hover:bg-slate-50"
+                className="border p-3 rounded flex justify-between items-center hover:bg-slate-50 card-hover"
               >
                 <div>
                   <div className="font-semibold">{ex.name}</div>
@@ -322,7 +331,7 @@ export function ExercisesView({
                 <div className="flex gap-2">
                   <button
                     onClick={() => startEdit(ex)}
-                    className="text-blue-500 text-lg hover:text-blue-700"
+                    className={`text-lg ${theme?.accent || 'text-blue-500'} hover:opacity-80`}
                   >
                     ✏️
                   </button>

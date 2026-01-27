@@ -1,11 +1,26 @@
 // hooks/useAuth.js
 // =====================================================
-// User Authentication Hook
+// User Authentication Hook with Password Support
 // =====================================================
 
 import { useState, useEffect } from 'react';
 import { storageService } from '../services/storage';
+import { databaseService } from '../services/database';
 import { STORAGE_KEYS } from '../constants/config';
+
+/**
+ * Hash a password using Web Crypto API
+ * @param {string} password - Plain text password
+ * @returns {Promise<string>} Hashed password
+ */
+async function hashPassword(password) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex;
+}
 
 /**
  * Authentication hook for user management
@@ -40,21 +55,103 @@ export function useAuth() {
   }, []);
 
   /**
-   * Login user
+   * Login user with password
    * @param {string} usernameInput - Username
-   * @returns {boolean} Success status
+   * @param {string} password - Password
+   * @param {boolean} isRegistration - Whether this is a registration attempt
+   * @returns {Promise<Object>} { success: boolean, error?: string }
    */
-  const login = (usernameInput) => {
+  const login = async (usernameInput, password, isRegistration = false) => {
     if (!usernameInput || !usernameInput.trim()) {
-      throw new Error('Username is required');
+      return { success: false, error: 'Username is required' };
     }
 
-    // Create user ID from username (sanitized)
+    if (!password) {
+      return { success: false, error: 'Password is required' };
+    }
+
+    const sanitizedUsername = usernameInput.trim();
+
+    try {
+      if (isRegistration) {
+        // REGISTRATION MODE
+        return await register(sanitizedUsername, password);
+      } else {
+        // LOGIN MODE
+        // Create user ID from username
+        const uid = sanitizedUsername.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        
+        // Load user data from Firebase
+        const userData = await databaseService.getUserData('users', uid);
+        
+        if (!userData) {
+          return { success: false, error: 'Username not found. Please register first.' };
+        }
+        
+        // Hash provided password and compare
+        const hashedPassword = await hashPassword(password);
+        
+        if (userData.passwordHash !== hashedPassword) {
+          return { success: false, error: 'Incorrect password' };
+        }
+        
+        // Success - save to localStorage
+        storageService.set(STORAGE_KEYS.USER_ID, uid);
+        storageService.set(STORAGE_KEYS.USERNAME, sanitizedUsername);
+
+        // Update state
+        setUserId(uid);
+        setUsername(sanitizedUsername);
+        setIsAuthenticated(true);
+
+        return { success: true };
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      return { success: false, error: 'Failed to login. Please try again.' };
+    }
+  };
+
+  /**
+   * Register new user
+   * @param {string} usernameInput - Username
+   * @param {string} password - Password
+   * @returns {Promise<Object>} { success: boolean, error?: string }
+   */
+  const register = async (usernameInput, password) => {
+    if (!usernameInput || usernameInput.trim().length < 3) {
+      return { success: false, error: 'Username must be at least 3 characters' };
+    }
+    
+    if (!password || password.length < 6) {
+      return { success: false, error: 'Password must be at least 6 characters' };
+    }
+
     const sanitizedUsername = usernameInput.trim();
     const uid = sanitizedUsername.toLowerCase().replace(/[^a-z0-9]/g, '_');
 
     try {
-      // Save to storage
+      // Check if user already exists
+      const existingUser = await databaseService.getUserData('users', uid);
+      
+      if (existingUser) {
+        return { success: false, error: 'Username already exists' };
+      }
+      
+      // Hash password
+      const hashedPassword = await hashPassword(password);
+      
+      // Create user data
+      const userData = {
+        username: sanitizedUsername,
+        passwordHash: hashedPassword,
+        createdAt: new Date().toISOString()
+      };
+      
+      // Save to Firebase
+      await databaseService.saveUserData('users', userData, uid);
+      
+      // Save to localStorage
       storageService.set(STORAGE_KEYS.USER_ID, uid);
       storageService.set(STORAGE_KEYS.USERNAME, sanitizedUsername);
 
@@ -63,10 +160,10 @@ export function useAuth() {
       setUsername(sanitizedUsername);
       setIsAuthenticated(true);
 
-      return true;
+      return { success: true };
     } catch (error) {
-      console.error('Login error:', error);
-      throw new Error('Failed to login. Please try again.');
+      console.error('Registration error:', error);
+      return { success: false, error: 'Failed to register. Please try again.' };
     }
   };
 
@@ -98,7 +195,59 @@ export function useAuth() {
   };
 
   /**
-   * Update username
+   * Change password
+   * @param {string} currentPassword - Current password
+   * @param {string} newPassword - New password
+   * @returns {Promise<Object>} { success: boolean, error?: string }
+   */
+  const changePassword = async (currentPassword, newPassword) => {
+    if (!userId) {
+      return { success: false, error: 'Not authenticated' };
+    }
+    
+    if (!currentPassword) {
+      return { success: false, error: 'Current password is required' };
+    }
+    
+    if (!newPassword || newPassword.length < 6) {
+      return { success: false, error: 'New password must be at least 6 characters' };
+    }
+
+    try {
+      // Get current user data
+      const userData = await databaseService.getUserData('users', userId);
+      
+      if (!userData) {
+        return { success: false, error: 'User not found' };
+      }
+      
+      // Verify current password
+      const currentHash = await hashPassword(currentPassword);
+      if (userData.passwordHash !== currentHash) {
+        return { success: false, error: 'Current password is incorrect' };
+      }
+      
+      // Hash new password
+      const newHash = await hashPassword(newPassword);
+      
+      // Update user data
+      const updatedData = {
+        ...userData,
+        passwordHash: newHash,
+        passwordUpdatedAt: new Date().toISOString()
+      };
+      
+      await databaseService.saveUserData('users', updatedData, userId);
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Change password error:', error);
+      return { success: false, error: 'Failed to change password' };
+    }
+  };
+
+  /**
+   * Update username (legacy support - kept for compatibility)
    * @param {string} newUsername - New username
    * @returns {boolean} Success status
    */
@@ -135,7 +284,9 @@ export function useAuth() {
     
     // Methods
     login,
+    register,
     logout,
+    changePassword,
     updateUsername,
     checkAuth
   };

@@ -3,9 +3,10 @@
 // Session Logging UI Component
 // =====================================================
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { SetEditor } from './shared/SetEditor';
 import { ProgressionCard } from './shared/ProgressionCard';
+import { ExerciseSelector } from './shared/ExerciseSelector.jsx';
 import { exByMuscle } from '../utils/muscleGroups';
 import { getProgression } from '../utils/progressionLogic';
 import { formatTime, getCurrentDate } from '../utils/dateHelpers';
@@ -22,9 +23,12 @@ export function SessionView({
   weeklyStimulus,
   activeProgram,
   currentDayIndex,
+  getCurrentDay,
   onSessionComplete,
   onLoadProgramDay,
-  useRestTimer
+  useRestTimer,
+  settings,
+  theme
 }) {
   const [date, setDate] = useState(getCurrentDate());
   const [selectedExercise, setSelectedExercise] = useState('');
@@ -32,20 +36,82 @@ export function SessionView({
   const [input, setInput] = useState({ w: '', r: '', rir: '' });
   const [session, setSession] = useState([]);
   const [editingSet, setEditingSet] = useState(null);
+  const [showExercisePicker, setShowExercisePicker] = useState(false);
   
   // Fatigue tracking
   const [showFatigueLog, setShowFatigueLog] = useState(false);
   const [perceivedFatigue, setPerceivedFatigue] = useState(5);
   const [muscleSoreness, setMuscleSoreness] = useState({});
 
+  // Ref for scrolling to set input
+  const setInputRef = useRef(null);
+
   // Rest timer
   const timer = useRestTimer ? useRestTimer() : null;
+
+  // Check if timer is enabled in settings
+  const timerEnabled = settings?.restTimerEnabled ?? true;
+
+  /**
+   * Navigate to previous day
+   */
+  const goToPreviousDay = () => {
+    const currentDate = new Date(date);
+    currentDate.setDate(currentDate.getDate() - 1);
+    setDate(currentDate.toISOString().split('T')[0]);
+  };
+
+  /**
+   * Navigate to next day
+   */
+  const goToNextDay = () => {
+    const currentDate = new Date(date);
+    currentDate.setDate(currentDate.getDate() + 1);
+    setDate(currentDate.toISOString().split('T')[0]);
+  };
+
+  /**
+   * Go to today
+   */
+  const goToToday = () => {
+    setDate(getCurrentDate());
+  };
+
+  /**
+   * Format date for display
+   */
+  const formatDateDisplay = (dateStr) => {
+    const d = new Date(dateStr + 'T00:00:00');
+    const today = new Date(getCurrentDate() + 'T00:00:00');
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    if (d.toDateString() === today.toDateString()) {
+      return 'Today';
+    } else if (d.toDateString() === yesterday.toDateString()) {
+      return 'Yesterday';
+    } else if (d.toDateString() === tomorrow.toDateString()) {
+      return 'Tomorrow';
+    } else {
+      return d.toLocaleDateString('en-US', { 
+        weekday: 'short', 
+        month: 'short', 
+        day: 'numeric' 
+      });
+    }
+  };
 
   // Get grouped exercises for dropdown
   const exercisesByMuscle = exByMuscle(exercises);
 
   // Get selected exercise object
   const selectedExObj = exercises.find(e => e.id == selectedExercise);
+  
+  // Check if selected exercise has prescription from session (loaded from program)
+  const sessionExercise = session.find(ex => ex.id == selectedExercise && ex.sets.length === 0);
+  const hasPrescription = sessionExercise && sessionExercise.prescribedSets;
 
   // Get progression advice
   const progression = selectedExercise
@@ -74,19 +140,37 @@ export function SessionView({
     setSets([]);
     setInput({ w: '', r: '', rir: '' });
     setEditingSet(null);
+    setShowExercisePicker(false); // Collapse picker after selection
     
     if (timer) {
       timer.stop();
     }
 
-    // Pre-fill weight from last performance
+    // Pre-fill weight from last performance or prescribed weight
     const prev = workouts
       .filter(w => w.id == exId)
       .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
     
-    if (prev && prev.sets && prev.sets.length > 0) {
+    // Check if there's a prescribed weight from program
+    const sessionEx = session.find(ex => ex.id == exId && ex.prescribedWeight);
+    
+    if (sessionEx && sessionEx.prescribedWeight) {
+      // Use prescribed weight from adaptive prescription
+      setInput({ w: sessionEx.prescribedWeight.toString(), r: '', rir: '' });
+    } else if (prev && prev.sets && prev.sets.length > 0) {
+      // Use last performance weight
       setInput({ w: prev.sets[0].w.toString(), r: '', rir: '' });
     }
+  };
+
+  /**
+   * Clear exercise selection
+   */
+  const clearExerciseSelection = () => {
+    setSelectedExercise('');
+    setSets([]);
+    setInput({ w: '', r: '', rir: '' });
+    setShowExercisePicker(true); // Re-show picker when clearing
   };
 
   /**
@@ -107,9 +191,9 @@ export function SessionView({
     setSets([...sets, newSet]);
     setInput({ w: input.w, r: '', rir: '' }); // Keep weight
     
-    // Start rest timer
-    if (timer) {
-      timer.start(120);
+    // Start rest timer with default time from settings
+    if (timer && timerEnabled) {
+      timer.start(settings.defaultRestTime || 120);
     }
   };
 
@@ -131,6 +215,11 @@ export function SessionView({
       r: set.r.toString(),
       rir: set.rir.toString()
     });
+    
+    // Scroll to set input area
+    setTimeout(() => {
+      setInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 100);
   };
 
   /**
@@ -193,10 +282,163 @@ export function SessionView({
   };
 
   /**
+   * Calculate adaptive prescription based on progression logic
+   */
+  const calculateAdaptivePrescription = (exercise, basePrescription) => {
+    // Get progression recommendation
+    const progression = getProgression(
+      exercise.id,
+      exercises,
+      workouts,
+      muscleReadiness,
+      systemicReadiness,
+      weeklyStimulus
+    );
+
+    // Check if exercise has been done before
+    const exerciseHistory = workouts.filter(w => w.id == exercise.id);
+    
+    // First time - use base prescription
+    if (exerciseHistory.length === 0) {
+      return {
+        sets: basePrescription.sets,
+        reps: basePrescription.reps,
+        rir: basePrescription.rir,
+        isAdapted: false,
+        progression
+      };
+    }
+
+    // Get last performance
+    const lastPerformance = exerciseHistory.sort((a, b) => 
+      new Date(b.date) - new Date(a.date)
+    )[0];
+
+    // Calculate adaptive prescription based on progression advice
+    let adaptedSets = basePrescription.sets;
+    let adaptedReps = basePrescription.reps;
+    let adaptedRir = basePrescription.rir;
+    let adaptedWeight = null;
+
+    switch (progression.advice) {
+      case 'progress':
+        // Ready to progress - use recommended weight if available
+        adaptedWeight = progression.recommendedWeight;
+        break;
+
+      case 'push_harder':
+        // Can push harder - reduce RIR by 1
+        adaptedRir = Math.max(0, basePrescription.rir - 1);
+        break;
+
+      case 'deload':
+        // Deload needed - reduce volume and intensity
+        adaptedSets = Math.max(1, Math.ceil(basePrescription.sets * 0.5));
+        adaptedRir = Math.min(5, basePrescription.rir + 2);
+        break;
+
+      case 'reduce':
+        // Need to reduce - add RIR or reduce volume slightly
+        if (progression.readiness === 'low') {
+          adaptedRir = Math.min(5, basePrescription.rir + 1);
+          adaptedSets = Math.max(1, basePrescription.sets - 1);
+        } else {
+          adaptedRir = Math.min(5, basePrescription.rir + 1);
+        }
+        break;
+
+      case 'maintain':
+      default:
+        // Maintain current approach
+        break;
+    }
+
+    return {
+      sets: adaptedSets,
+      reps: adaptedReps,
+      rir: adaptedRir,
+      weight: adaptedWeight,
+      isAdapted: true,
+      progression,
+      basePrescription
+    };
+  };
+
+  /**
+   * Load program day exercises
+   */
+  const handleLoadProgram = () => {
+    const programDay = onLoadProgramDay();
+    
+    if (!programDay) return;
+
+    // Load exercises from program day into session
+    const loadedExercises = programDay.exercises.map(progEx => {
+      // Look for exercise using exId property (set in ProgramsView)
+      const exercise = exercises.find(e => e.id === progEx.exId || e.id === progEx.id);
+      if (!exercise) {
+        console.warn('Exercise not found:', progEx);
+        return null;
+      }
+
+      // Calculate adaptive prescription
+      const prescription = calculateAdaptivePrescription(exercise, {
+        sets: progEx.sets,
+        reps: progEx.reps,
+        rir: progEx.rir
+      });
+
+      return {
+        ...exercise,
+        prescribedSets: prescription.sets,
+        prescribedReps: prescription.reps,
+        prescribedRir: prescription.rir,
+        prescribedWeight: prescription.weight,
+        basePrescribedSets: prescription.basePrescription?.sets,
+        basePrescribedReps: prescription.basePrescription?.reps,
+        basePrescribedRir: prescription.basePrescription?.rir,
+        isAdapted: prescription.isAdapted,
+        sets: [], // Empty sets to be filled by user
+        timestamp: Date.now() + Math.random() // Unique timestamp
+      };
+    }).filter(Boolean);
+
+    if (loadedExercises.length === 0) {
+      alert('No valid exercises found in program day');
+      return;
+    }
+
+    // Add to session without sets (user will log them)
+    setSession([...session, ...loadedExercises]);
+    
+    // Select first exercise if none selected
+    if (!selectedExercise && loadedExercises.length > 0) {
+      handleExerciseSelect(loadedExercises[0].id);
+    }
+
+    const adaptedCount = loadedExercises.filter(ex => ex.isAdapted).length;
+    if (adaptedCount > 0) {
+      alert(`Loaded ${loadedExercises.length} exercises from ${programDay.name}\n${adaptedCount} prescriptions adapted based on your progress and recovery`);
+    } else {
+      alert(`Loaded ${loadedExercises.length} exercises from ${programDay.name}`);
+    }
+  };
+
+  /**
    * Remove exercise from session
    */
   const handleRemoveFromSession = (timestamp) => {
     setSession(session.filter(ex => ex.timestamp !== timestamp));
+  };
+
+  /**
+   * Finish rest day (applies recovery and advances program)
+   */
+  const handleFinishRestDay = () => {
+    // Call session complete with empty session to trigger rest day recovery
+    onSessionComplete([], date, perceivedFatigue, muscleSoreness);
+    
+    alert('Rest day complete. Enhanced recovery applied! 💪');
   };
 
   /**
@@ -222,8 +464,136 @@ export function SessionView({
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-xl p-4 sm:p-6">
-      <h1 className="text-3xl font-bold mb-4 sm:mb-6">Log Session</h1>
+    <div className="bg-white rounded-lg shadow-xl p-4 sm:p-6 animate-fadeIn">
+      <h1 className="text-3xl font-bold mb-4">Log Session</h1>
+
+      {/* Check if current program day is a rest day */}
+      {activeProgram && getCurrentDay && getCurrentDay()?.isRestDay && (
+        <div className="mb-6">
+          <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-6">
+            <div className="text-center mb-4">
+              <div className="text-6xl mb-3">😴</div>
+              <h2 className="text-2xl font-bold text-blue-900 mb-2">
+                Rest Day
+              </h2>
+              <p className="text-blue-700 mb-4">
+                Today is a scheduled rest day in your {activeProgram.name} program.
+              </p>
+            </div>
+
+            {/* Recovery Status */}
+            <div className="bg-white rounded-lg p-4 mb-4">
+              <h3 className="font-semibold mb-3">Recovery Status</h3>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm">Systemic Readiness:</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-32 bg-gray-200 rounded-full h-2">
+                      <div
+                        className={`h-2 rounded-full ${
+                          systemicReadiness > 0.85 ? 'bg-green-500' :
+                          systemicReadiness > 0.65 ? 'bg-yellow-500' :
+                          'bg-red-500'
+                        }`}
+                        style={{ width: `${systemicReadiness * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-sm font-bold">
+                      {(systemicReadiness * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                </div>
+
+                {/* Top 3 muscles */}
+                {Object.entries(muscleReadiness)
+                  .sort(([, a], [, b]) => a - b)
+                  .slice(0, 3)
+                  .map(([muscle, readiness]) => (
+                    <div key={muscle} className="flex justify-between items-center">
+                      <span className="text-sm">{muscle}:</span>
+                      <div className="flex items-center gap-2">
+                        <div className="w-32 bg-gray-200 rounded-full h-2">
+                          <div
+                            className={`h-2 rounded-full ${
+                              readiness > 0.85 ? 'bg-green-500' :
+                              readiness > 0.65 ? 'bg-yellow-500' :
+                              'bg-red-500'
+                            }`}
+                            style={{ width: `${readiness * 100}%` }}
+                          />
+                        </div>
+                        <span className="text-sm font-bold">
+                          {(readiness * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            {/* Rest Day Actions */}
+            <div className="space-y-2">
+              <button
+                onClick={() => {
+                  if (confirm('Mark this rest day as complete and advance to next day?')) {
+                    // Complete rest day - this applies recovery bonus
+                    handleFinishRestDay();
+                  }
+                }}
+                className="w-full bg-blue-600 text-white py-4 rounded-lg font-bold text-lg hover:bg-blue-700"
+              >
+                ✓ Complete Rest Day
+              </button>
+
+              <button
+                onClick={() => {
+                  if (confirm('Are you sure you want to train on a scheduled rest day? This may impact recovery.')) {
+                    // Allow user to proceed with training - just closes the rest day UI
+                    // They can then add exercises normally
+                  }
+                }}
+                className="w-full bg-yellow-500 text-white py-3 rounded-lg font-semibold text-base hover:bg-yellow-600"
+              >
+                ⚠️ Train Anyway (Not Recommended)
+              </button>
+            </div>
+
+            <p className="text-xs text-blue-600 text-center mt-4">
+              💡 Rest days help maximize muscle growth and prevent overtraining
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Date Navigation */}
+      <div className="mb-4 flex items-center justify-between bg-slate-100 rounded-lg p-2">
+        <button
+          onClick={goToPreviousDay}
+          className="p-2 hover:bg-slate-200 rounded-lg transition-colors"
+          aria-label="Previous day"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+
+        <button
+          onClick={goToToday}
+          className="px-4 py-2 font-semibold text-base hover:bg-slate-200 rounded-lg transition-colors"
+        >
+          {formatDateDisplay(date)}
+        </button>
+
+        <button
+          onClick={goToNextDay}
+          className="p-2 hover:bg-slate-200 rounded-lg transition-colors"
+          aria-label="Next day"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      </div>
 
       {/* Fatigue Log Toggle */}
       <button
@@ -301,7 +671,7 @@ export function SessionView({
               </div>
             </div>
             <button
-              onClick={onLoadProgramDay}
+              onClick={handleLoadProgram}
               className="bg-purple-600 text-white px-5 py-3 rounded-lg text-base font-semibold whitespace-nowrap hover:bg-purple-700"
             >
               Load Day
@@ -309,14 +679,6 @@ export function SessionView({
           </div>
         </div>
       )}
-
-      {/* Date Picker */}
-      <input
-        type="date"
-        value={date}
-        onChange={(e) => setDate(e.target.value)}
-        className="w-full px-4 py-3 border-2 rounded-lg mb-4 text-lg"
-      />
 
       {/* Exercise Selection */}
       {exercises.length === 0 ? (
@@ -328,39 +690,70 @@ export function SessionView({
         </div>
       ) : (
         <>
-          <select
-            value={selectedExercise}
-            onChange={(e) => handleExerciseSelect(e.target.value)}
-            className="w-full px-4 py-4 border-2 rounded-lg mb-4 text-lg font-medium"
-          >
-            <option value="">Choose exercise...</option>
-            {Object.entries(exercisesByMuscle).map(([muscle, exs]) => (
-              <optgroup key={muscle} label={muscle}>
-                {exs.map(ex => (
-                  <option key={ex.id} value={ex.id}>
-                    {ex.name}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+          {/* Add Exercise Button (when no exercise selected or picker hidden) */}
+          {!selectedExercise && !showExercisePicker && (
+            <button
+              onClick={() => setShowExercisePicker(true)}
+              className={`w-full py-4 rounded-lg font-bold text-lg mb-4 text-white ${theme?.primary || 'bg-blue-600 hover:bg-blue-700'}`}
+            >
+              + Add Exercise
+            </button>
+          )}
+
+          {/* Exercise Picker (collapsed until button clicked) */}
+          {showExercisePicker && !selectedExercise && (
+            <div className="mb-4 p-4 border-2 rounded-lg bg-slate-50 animate-slideDown">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="font-semibold text-lg">Select Exercise</h3>
+                <button
+                  onClick={() => setShowExercisePicker(false)}
+                  className="text-gray-500 hover:text-gray-700 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+              <ExerciseSelector
+                exercises={exercises}
+                exercisesByMuscle={exercisesByMuscle}
+                onSelect={handleExerciseSelect}
+                placeholder="2️⃣ Choose exercise..."
+              />
+            </div>
+          )}
 
           {/* Exercise Details */}
           {selectedExObj && (
             <>
+              {/* Currently Selected Exercise Banner */}
+              <div className={`mb-4 p-4 rounded-lg border-2 ${theme?.primary || 'bg-blue-600'} bg-opacity-10`}>
+                <div className="text-sm font-semibold opacity-75 mb-1">Currently Logging:</div>
+                <div className="text-xl font-bold">{selectedExObj.name}</div>
+              </div>
+
               {/* Progression Advice */}
               {progression && <ProgressionCard progression={progression} className="mb-4" />}
 
               {/* Prescribed Sets (from program) */}
-              {selectedExObj.prescribedSets && (
+              {hasPrescription && sessionExercise && (
                 <div className="bg-purple-50 border-2 border-purple-200 rounded-lg p-4 mb-4">
-                  <div className="text-base font-semibold text-purple-900">
-                    Program Prescription
+                  <div className="text-base font-semibold text-purple-900 mb-1">
+                    {sessionExercise.isAdapted ? 'Adapted Prescription' : 'Program Prescription'}
                   </div>
-                  <div className="text-sm text-purple-800">
-                    {selectedExObj.prescribedSets} sets ×{' '}
-                    {selectedExObj.prescribedReps} reps @ {selectedExObj.prescribedRir} RIR
+                  <div className="text-sm text-purple-800 mb-2">
+                    {sessionExercise.prescribedSets} sets ×{' '}
+                    {sessionExercise.prescribedReps} reps @ {sessionExercise.prescribedRir} RIR
+                    {sessionExercise.prescribedWeight && (
+                      <span className="font-semibold"> · {sessionExercise.prescribedWeight}lb</span>
+                    )}
                   </div>
+                  {sessionExercise.isAdapted && sessionExercise.basePrescribedSets && (
+                    <div className="text-xs text-purple-600 pt-2 border-t border-purple-200">
+                      Base program: {sessionExercise.basePrescribedSets}×{sessionExercise.basePrescribedReps} @ {sessionExercise.basePrescribedRir}RIR
+                      <span className="ml-2 italic">
+                        (adjusted for recovery & progress)
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -382,7 +775,7 @@ export function SessionView({
               )}
 
               {/* Rest Timer */}
-              {timer && timer.isActive && timer.timeRemaining > 0 && (
+              {timerEnabled && timer && timer.isActive && timer.timeRemaining > 0 && (
                 <div className="bg-green-50 border-2 border-green-200 rounded-lg p-6 text-center mb-4">
                   <div className="text-base font-semibold text-green-900 mb-2">
                     Rest Timer
@@ -395,7 +788,7 @@ export function SessionView({
 
               {/* Current Sets */}
               {sets.length > 0 && (
-                <div className="bg-slate-50 p-4 rounded-lg mb-4 border-2">
+                <div className="bg-slate-50 p-4 rounded-lg mb-4 border-2 stagger-children">
                   {sets.map((s, i) => (
                     editingSet === i ? (
                       <div key={i} className="border-2 border-blue-300 rounded p-2 mb-2">
@@ -442,26 +835,36 @@ export function SessionView({
 
               {/* Set Input */}
               {editingSet === null && (
-                <SetEditor
-                  weight={input.w}
-                  reps={input.r}
-                  rir={input.rir}
-                  onWeightChange={(val) => setInput({ ...input, w: val })}
-                  onRepsChange={(val) => setInput({ ...input, r: val })}
-                  onRirChange={(val) => setInput({ ...input, rir: val })}
-                  onSubmit={handleAddSet}
-                  autoFocusReps={sets.length > 0}
-                />
+                <div ref={setInputRef}>
+                  <SetEditor
+                    weight={input.w}
+                    reps={input.r}
+                    rir={input.rir}
+                    onWeightChange={(val) => setInput({ ...input, w: val })}
+                    onRepsChange={(val) => setInput({ ...input, r: val })}
+                    onRirChange={(val) => setInput({ ...input, rir: val })}
+                    onSubmit={handleAddSet}
+                    autoFocusReps={sets.length > 0}
+                  />
+                </div>
               )}
 
               {/* Finish Exercise Button */}
               {sets.length > 0 && (
-                <button
-                  onClick={handleAddToSession}
-                  className="w-full bg-green-600 text-white py-4 rounded-lg font-bold text-lg mt-3 hover:bg-green-700"
-                >
-                  ✓ Finish Exercise
-                </button>
+                <>
+                  <button
+                    onClick={handleAddToSession}
+                    className="w-full bg-green-600 text-white py-4 rounded-lg font-bold text-lg mt-3 hover:bg-green-700 btn-press"
+                  >
+                    ✓ Finish Exercise
+                  </button>
+                  <button
+                    onClick={clearExerciseSelection}
+                    className="w-full bg-gray-400 text-white py-3 rounded-lg font-semibold text-base mt-2 hover:bg-gray-500 btn-press"
+                  >
+                    Change Exercise
+                  </button>
+                </>
               )}
             </>
           )}
@@ -475,34 +878,86 @@ export function SessionView({
             <h2 className="text-2xl font-bold">Session ({session.length})</h2>
             <button
               onClick={handleFinish}
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold text-lg hover:bg-blue-700"
+              className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold text-lg hover:bg-blue-700 btn-press"
             >
               Finish
             </button>
           </div>
 
-          {session.map((ex, i) => (
-            <div key={i} className="border-2 p-4 rounded-lg mb-3 bg-slate-50">
-              <div className="flex justify-between items-start mb-2">
-                <div className="font-bold text-lg">{ex.name}</div>
-                <button
-                  onClick={() => {
-                    if (confirm(`Remove ${ex.name} from session?`)) {
-                      handleRemoveFromSession(ex.timestamp);
-                    }
-                  }}
-                  className="text-red-500 text-xl"
-                >
-                  ×
-                </button>
-              </div>
-              {ex.sets.map((s, j) => (
-                <div key={j} className="text-sm py-1">
-                  Set {j + 1}: {s.w}lb × {s.r} @ {s.rir}RIR
+          <div className="stagger-children space-y-3">
+            {session.map((ex, i) => (
+              <div 
+                key={i} 
+                className={`border-2 p-4 rounded-lg transition-all ${
+                  ex.id === selectedExercise && ex.sets.length === 0
+                    ? 'bg-blue-50 border-blue-400 shadow-md'
+                    : ex.sets.length === 0
+                    ? 'bg-yellow-50 border-yellow-300'
+                    : 'bg-slate-50 border-slate-200'
+                } card-hover`}
+              >
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <div className="font-bold text-lg flex items-center gap-2">
+                      {ex.name}
+                      {ex.id === selectedExercise && ex.sets.length === 0 && (
+                        <span className="text-xs bg-blue-500 text-white px-2 py-1 rounded">
+                          ← Logging
+                        </span>
+                      )}
+                      {ex.sets.length === 0 && (
+                        <span className="text-xs bg-yellow-500 text-white px-2 py-1 rounded">
+                          Incomplete
+                        </span>
+                      )}
+                    </div>
+                    {ex.prescribedSets && (
+                      <div className="text-xs text-purple-600 mt-1">
+                        Target: {ex.prescribedSets}×{ex.prescribedReps} @ {ex.prescribedRir}RIR
+                        {ex.prescribedWeight && ` · ${ex.prescribedWeight}lb`}
+                        {ex.isAdapted && (
+                          <span className="ml-1 bg-purple-100 px-1 rounded text-purple-700">
+                            adapted
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    {ex.sets.length === 0 && ex.id !== selectedExercise && (
+                      <button
+                        onClick={() => handleExerciseSelect(ex.id)}
+                        className="bg-blue-500 text-white px-3 py-1 rounded text-sm hover:bg-blue-600"
+                      >
+                        Log Sets
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        if (confirm(`Remove ${ex.name} from session?`)) {
+                          handleRemoveFromSession(ex.timestamp);
+                        }
+                      }}
+                      className="text-red-500 text-xl"
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
-              ))}
-            </div>
-          ))}
+                {ex.sets.length > 0 ? (
+                  ex.sets.map((s, j) => (
+                    <div key={j} className="text-sm py-1">
+                      Set {j + 1}: {s.w}lb × {s.r} @ {s.rir}RIR
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-sm text-slate-500 italic">
+                    No sets logged yet
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

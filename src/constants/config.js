@@ -4,32 +4,79 @@
 // =====================================================
 
 /**
- * Fatigue and Recovery Constants
+ * Fatigue and Recovery Constants (Exponential Model)
  */
 export const FATIGUE_CONFIG = {
-  // Local muscle fatigue decay rate per day (0.15 = 15% recovery per day)
-  LOCAL_RECOVERY_RATE: 0.15,
+  // === RECOVERY RATES (exponential decay) ===
+  // Local muscle fatigue decay rate per day
+  // fatigue(t) = fatigue(0) * exp(-rate * days)
+  LOCAL_RECOVERY_RATE: 0.20,  // ~20% reduction per day
   
-  // Systemic fatigue decay rate per day (0.12 = 12% recovery per day)
-  SYSTEMIC_RECOVERY_RATE: 0.12,
+  // Systemic fatigue decay rate per day
+  SYSTEMIC_RECOVERY_RATE: 0.15,  // ~15% reduction per day (slower than local)
   
-  // Fatigue accumulation per set (base value)
-  BASE_FATIGUE_PER_SET: 0.033,
+  // === STIMULUS CALCULATION ===
+  // RIR decay constant for effort calculation
+  // stimulus_effort = exp(-k * RIR)
+  // k=0.3: RIR 0→1.0, RIR 2→0.55, RIR 4→0.30
+  RIR_DECAY_CONSTANT: 0.3,
+  
+  // Role multipliers for muscle involvement
+  PRIMARY_MUSCLE_MULTIPLIER: 1.0,    // Full stimulus/fatigue
+  SECONDARY_MUSCLE_MULTIPLIER: 0.5,  // Half stimulus/fatigue
+  TERTIARY_MUSCLE_MULTIPLIER: 0.25,  // Quarter stimulus/fatigue
+  
+  // === FATIGUE ACCUMULATION ===
+  // Base fatigue is simply Load × Reps × Multipliers
+  // No arbitrary scaling needed with exponential readiness
   
   // Multiplier for axially loaded exercises (spine compression)
-  AXIAL_LOAD_MULTIPLIER: 1.5,
+  AXIAL_LOAD_MULTIPLIER: 1.3,
   
-  // Weekly stimulus decay rate (how quickly volume contribution fades)
-  STIMULUS_DECAY_RATE: 0.2,
+  // Compound exercise systemic fatigue multiplier
+  COMPOUND_SYSTEMIC_MULTIPLIER: 1.5,
   
-  // Maximum fatigue before forced deload (100% = completely fatigued)
-  MAX_FATIGUE_THRESHOLD: 0.6,
+  // === OBSERVATIONAL CORRECTIONS ===
+  // Penalty when actual RIR < target RIR (went too close to failure)
+  RIR_MISS_FATIGUE_PENALTY: 0.15,  // Per RIR unit missed
   
-  // Minimum readiness for progression (85% = good to progress)
-  PROGRESSION_THRESHOLD: 0.85,
+  // Soreness correction weight
+  SORENESS_FATIGUE_WEIGHT: 0.10,  // Multiplies reported soreness
   
-  // Deload readiness threshold (60% = needs deload)
-  DELOAD_THRESHOLD: 0.6
+  // Perceived fatigue correction weight
+  PERCEIVED_FATIGUE_WEIGHT: 0.08,  // Multiplies (perceived - 5)
+  
+  // === STIMULUS TRACKING ===
+  // Weekly stimulus decay (for volume tracking)
+  STIMULUS_DECAY_RATE: 0.14,  // ~14% per day (weekly tracking)
+  
+  // === THRESHOLDS ===
+  // Readiness threshold for progression (exp(-fatigue))
+  PROGRESSION_THRESHOLD: 0.85,  // readiness > 85%
+  
+  // Readiness threshold for deload consideration
+  DELOAD_THRESHOLD: 0.60,  // readiness < 60%
+  
+  // === DELOAD DETECTION ===
+  // Days to track for trend-based deload triggers
+  DELOAD_TRACKING_DAYS: 7,
+  
+  // Minimum conditions that must be met for deload (2 of 4)
+  DELOAD_MIN_CONDITIONS: 2,
+  
+  // Performance error threshold (consecutive sessions)
+  PERFORMANCE_ERROR_THRESHOLD: -1,  // RIR consistently 1+ worse than target
+  PERFORMANCE_ERROR_SESSIONS: 2,
+  
+  // === 1RM ESTIMATION ===
+  // Epley formula: 1RM = weight × (1 + reps/30)
+  // Brzycki formula: 1RM = weight / (1.0278 - 0.0278 × reps)
+  USE_EPLEY_FORMULA: true,
+  
+  // === LEGACY SUPPORT ===
+  // Keep for backward compatibility during migration
+  BASE_FATIGUE_PER_SET: 0.033,
+  MAX_FATIGUE_THRESHOLD: 0.6
 };
 
 /**
@@ -48,13 +95,26 @@ export const PROGRESSION_CONFIG = {
   // RIR threshold for suggesting weight increase (0-1 RIR = time to progress)
   RIR_PROGRESSION_THRESHOLD: 1,
   
-  // Deload percentage (reduce weight by 30%)
-  DELOAD_PERCENTAGE: 0.30,
+  // Deload volume reduction
+  DELOAD_SET_REDUCTION: 0.40,  // 40% reduction (was 50%, now more conservative)
   
-  // Volume recommendations
+  // Deload intensity reduction (weight reduction)
+  DELOAD_WEIGHT_REDUCTION: 0.30,  // 30% reduction
+  
+  // Deload RIR increase
+  DELOAD_RIR_INCREASE: 2,  // Add 2-3 RIR
+  
+  // Volume recommendations (sets per muscle per week)
   MIN_SETS_PER_WEEK: 10,
   MAX_SETS_PER_WEEK: 20,
-  OPTIMAL_SETS_PER_WEEK: 15
+  OPTIMAL_SETS_PER_WEEK: 15,
+  
+  // Stimulus efficiency threshold
+  // If stimulus/fatigue ratio falls below this for multiple weeks, increase volume
+  MIN_STIMULUS_EFFICIENCY: 0.7,
+  
+  // Maximum stimulus accumulation before mandatory deload
+  MAX_WEEKLY_STIMULUS: 25  // Per muscle group
 };
 
 /**

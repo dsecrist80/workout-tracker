@@ -1,29 +1,71 @@
 // hooks/useRestTimer.js
 // =====================================================
-// Rest Timer Hook
+// Rest Timer Hook with Settings Integration
 // =====================================================
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { UI_CONFIG } from '../constants/config';
+import { useState, useEffect, useRef } from 'react';
 
 /**
- * Rest timer hook for managing rest periods between sets
- * @param {number} defaultDuration - Default timer duration in seconds
- * @returns {Object} Timer state and controls
+ * Custom hook for rest timer functionality
+ * @param {number} defaultSeconds - Default timer duration from settings
  */
-export function useRestTimer(defaultDuration = UI_CONFIG.DEFAULT_REST_TIME) {
+export function useRestTimer(defaultSeconds = 120) {
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [isActive, setIsActive] = useState(false);
-  const [duration, setDuration] = useState(defaultDuration);
   const intervalRef = useRef(null);
 
-  // Timer countdown effect
+  /**
+   * Start the timer
+   */
+  const start = (seconds = defaultSeconds) => {
+    setTimeRemaining(seconds);
+    setIsActive(true);
+  };
+
+  /**
+   * Stop the timer
+   */
+  const stop = () => {
+    setIsActive(false);
+    setTimeRemaining(0);
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+  };
+
+  /**
+   * Pause the timer
+   */
+  const pause = () => {
+    setIsActive(false);
+  };
+
+  /**
+   * Resume the timer
+   */
+  const resume = () => {
+    if (timeRemaining > 0) {
+      setIsActive(true);
+    }
+  };
+
+  /**
+   * Add time to the timer
+   */
+  const addTime = (seconds) => {
+    setTimeRemaining(prev => prev + seconds);
+  };
+
+  /**
+   * Timer countdown effect
+   */
   useEffect(() => {
     if (isActive && timeRemaining > 0) {
       intervalRef.current = setInterval(() => {
         setTimeRemaining(prev => {
           if (prev <= 1) {
             setIsActive(false);
+            // Optional: Play sound or notification when timer completes
             return 0;
           }
           return prev - 1;
@@ -32,7 +74,6 @@ export function useRestTimer(defaultDuration = UI_CONFIG.DEFAULT_REST_TIME) {
     } else {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
-        intervalRef.current = null;
       }
     }
 
@@ -44,110 +85,22 @@ export function useRestTimer(defaultDuration = UI_CONFIG.DEFAULT_REST_TIME) {
   }, [isActive, timeRemaining]);
 
   /**
-   * Start the timer
-   * @param {number} customDuration - Optional custom duration
+   * Format time as MM:SS
    */
-  const start = useCallback((customDuration = null) => {
-    const timerDuration = customDuration !== null ? customDuration : duration;
-    setTimeRemaining(timerDuration);
-    setIsActive(true);
-  }, [duration]);
-
-  /**
-   * Pause the timer
-   */
-  const pause = useCallback(() => {
-    setIsActive(false);
-  }, []);
-
-  /**
-   * Resume the timer
-   */
-  const resume = useCallback(() => {
-    if (timeRemaining > 0) {
-      setIsActive(true);
-    }
-  }, [timeRemaining]);
-
-  /**
-   * Stop and reset the timer
-   */
-  const stop = useCallback(() => {
-    setIsActive(false);
-    setTimeRemaining(0);
-  }, []);
-
-  /**
-   * Reset timer to duration without starting
-   */
-  const reset = useCallback(() => {
-    setIsActive(false);
-    setTimeRemaining(duration);
-  }, [duration]);
-
-  /**
-   * Add time to running timer
-   * @param {number} seconds - Seconds to add
-   */
-  const addTime = useCallback((seconds) => {
-    setTimeRemaining(prev => prev + seconds);
-  }, []);
-
-  /**
-   * Set custom duration
-   * @param {number} seconds - New duration
-   */
-  const setCustomDuration = useCallback((seconds) => {
-    setDuration(seconds);
-  }, []);
-
-  /**
-   * Get formatted time string (MM:SS)
-   * @returns {string} Formatted time
-   */
-  const getFormattedTime = useCallback(() => {
+  const formattedTime = () => {
     const minutes = Math.floor(timeRemaining / 60);
     const seconds = timeRemaining % 60;
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  }, [timeRemaining]);
-
-  /**
-   * Get progress percentage
-   * @returns {number} Progress (0-100)
-   */
-  const getProgress = useCallback(() => {
-    if (duration === 0) return 0;
-    return ((duration - timeRemaining) / duration) * 100;
-  }, [timeRemaining, duration]);
-
-  /**
-   * Check if timer is complete
-   * @returns {boolean} True if time is up
-   */
-  const isComplete = useCallback(() => {
-    return timeRemaining === 0 && !isActive;
-  }, [timeRemaining, isActive]);
+  };
 
   return {
-    // State
     timeRemaining,
     isActive,
-    duration,
-    
-    // Computed
-    formattedTime: getFormattedTime(),
-    progress: getProgress(),
-    isComplete: isComplete(),
-    
-    // Controls
     start,
+    stop,
     pause,
     resume,
-    stop,
-    reset,
     addTime,
-    setDuration: setCustomDuration
+    formattedTime: formattedTime(),
   };
 }
-
-export default useRestTimer;

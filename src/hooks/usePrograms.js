@@ -1,12 +1,11 @@
 // hooks/usePrograms.js
 // =====================================================
-// Program Management Hook
+// Program Management Hook (Database Sync)
 // =====================================================
 
 import { useState, useEffect, useCallback } from 'react';
 import { databaseService } from '../services/database';
-import { storageService } from '../services/storage';
-import { DB_COLLECTIONS, STORAGE_KEYS } from '../constants/config';
+import { DB_COLLECTIONS } from '../constants/config';
 
 /**
  * Training program management hook
@@ -40,21 +39,46 @@ export function usePrograms(userId) {
   }, []);
 
   /**
-   * Load active program from storage
+   * Load active program from database
    */
-  const loadActiveProgram = useCallback(() => {
+  const loadActiveProgram = useCallback(async () => {
     if (!userId) return;
 
     try {
-      const stored = storageService.get(STORAGE_KEYS.ACTIVE_PROGRAM(userId));
-      const dayIndex = storageService.get(STORAGE_KEYS.CURRENT_DAY_INDEX(userId), 0);
+      // Load from database
+      const activeProgramData = await databaseService.loadActiveProgram(userId);
       
-      if (stored) {
-        setActiveProgram(stored);
-        setCurrentDayIndex(dayIndex);
+      if (activeProgramData && activeProgramData.programId) {
+        // Find the full program by ID
+        const programs = await databaseService.loadCollection(DB_COLLECTIONS.PROGRAMS);
+        const program = programs.find(p => p.id === activeProgramData.programId);
+        
+        if (program) {
+          setActiveProgram(program);
+          setCurrentDayIndex(activeProgramData.currentDayIndex || 0);
+        } else {
+          // Program was deleted, clear active program
+          await databaseService.saveActiveProgram(userId, null);
+        }
       }
     } catch (err) {
       console.error('Failed to load active program:', err);
+    }
+  }, [userId]);
+
+  /**
+   * Save active program state to database
+   */
+  const saveActiveProgramState = useCallback(async (programId, dayIndex) => {
+    if (!userId) return;
+    
+    try {
+      await databaseService.saveActiveProgram(userId, {
+        programId,
+        currentDayIndex: dayIndex
+      });
+    } catch (err) {
+      console.error('Failed to save active program state:', err);
     }
   }, [userId]);
 
@@ -121,7 +145,8 @@ export function usePrograms(userId) {
       if (success && activeProgram?.id === id) {
         const updatedActive = updated.find(p => p.id === id);
         setActiveProgram(updatedActive);
-        storageService.set(STORAGE_KEYS.ACTIVE_PROGRAM(userId), updatedActive);
+        // Save to database
+        await saveActiveProgramState(id, currentDayIndex);
       }
       
       return success;
@@ -130,7 +155,7 @@ export function usePrograms(userId) {
       setError(err.message);
       return false;
     }
-  }, [programs, activeProgram, userId, savePrograms]);
+  }, [programs, activeProgram, currentDayIndex, savePrograms, saveActiveProgramState]);
 
   /**
    * Delete program
@@ -144,7 +169,7 @@ export function usePrograms(userId) {
       
       // Clear active program if it was deleted
       if (success && activeProgram?.id === id) {
-        stopProgram();
+        await stopProgram();
       }
       
       return success;
@@ -169,7 +194,7 @@ export function usePrograms(userId) {
    * @param {number} programId - Program ID to start
    * @returns {boolean} Success status
    */
-  const startProgram = useCallback((programId) => {
+  const startProgram = useCallback(async (programId) => {
     if (!userId) {
       setError('User ID required to start program');
       return false;
@@ -186,8 +211,8 @@ export function usePrograms(userId) {
       setActiveProgram(program);
       setCurrentDayIndex(0);
       
-      storageService.set(STORAGE_KEYS.ACTIVE_PROGRAM(userId), program);
-      storageService.set(STORAGE_KEYS.CURRENT_DAY_INDEX(userId), 0);
+      // Save to database
+      await saveActiveProgramState(programId, 0);
       
       return true;
     } catch (err) {
@@ -195,21 +220,21 @@ export function usePrograms(userId) {
       setError(err.message);
       return false;
     }
-  }, [userId, getProgramById]);
+  }, [userId, getProgramById, saveActiveProgramState]);
 
   /**
    * Stop/deactivate current program
    * @returns {boolean} Success status
    */
-  const stopProgram = useCallback(() => {
+  const stopProgram = useCallback(async () => {
     if (!userId) return false;
 
     try {
       setActiveProgram(null);
       setCurrentDayIndex(0);
       
-      storageService.remove(STORAGE_KEYS.ACTIVE_PROGRAM(userId));
-      storageService.remove(STORAGE_KEYS.CURRENT_DAY_INDEX(userId));
+      // Clear from database
+      await databaseService.saveActiveProgram(userId, null);
       
       return true;
     } catch (err) {
@@ -223,7 +248,7 @@ export function usePrograms(userId) {
    * Advance to next day in program
    * @returns {Object|null} Next day or null
    */
-  const advanceToNextDay = useCallback(() => {
+  const advanceToNextDay = useCallback(async () => {
     if (!activeProgram || !activeProgram.days) {
       return null;
     }
@@ -232,8 +257,9 @@ export function usePrograms(userId) {
       const nextIndex = (currentDayIndex + 1) % activeProgram.days.length;
       setCurrentDayIndex(nextIndex);
       
+      // Save to database
       if (userId) {
-        storageService.set(STORAGE_KEYS.CURRENT_DAY_INDEX(userId), nextIndex);
+        await saveActiveProgramState(activeProgram.id, nextIndex);
       }
       
       return activeProgram.days[nextIndex];
@@ -242,14 +268,14 @@ export function usePrograms(userId) {
       setError(err.message);
       return null;
     }
-  }, [activeProgram, currentDayIndex, userId]);
+  }, [activeProgram, currentDayIndex, userId, saveActiveProgramState]);
 
   /**
    * Go to specific day in program
    * @param {number} dayIndex - Day index
    * @returns {boolean} Success status
    */
-  const goToDay = useCallback((dayIndex) => {
+  const goToDay = useCallback(async (dayIndex) => {
     if (!activeProgram || !activeProgram.days) {
       return false;
     }
@@ -262,8 +288,9 @@ export function usePrograms(userId) {
     try {
       setCurrentDayIndex(dayIndex);
       
+      // Save to database
       if (userId) {
-        storageService.set(STORAGE_KEYS.CURRENT_DAY_INDEX(userId), dayIndex);
+        await saveActiveProgramState(activeProgram.id, dayIndex);
       }
       
       return true;
@@ -272,7 +299,7 @@ export function usePrograms(userId) {
       setError(err.message);
       return false;
     }
-  }, [activeProgram, userId]);
+  }, [activeProgram, userId, saveActiveProgramState]);
 
   /**
    * Get current day data

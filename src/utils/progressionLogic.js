@@ -1,19 +1,22 @@
 // utils/progressionLogic.js
 // =====================================================
-// Progression & Load Recommendations
+// Progression & Load Recommendations (Stimulus-Optimized)
 // =====================================================
 
 import { PROGRESSION_CONFIG, FATIGUE_CONFIG } from '../constants/config';
 import { getProgressionIncrement } from '../constants/exerciseTypes';
+import { calculateStimulusEfficiency, detectStimulusStagnation } from './fatigueCalculations';
 
 /**
  * Get progression recommendation for an exercise
+ * Optimizes for maximum sustainable stimulus over time
  * @param {string} exerciseId - Exercise ID
  * @param {Array} exercises - Exercise library
  * @param {Array} workouts - Workout history
  * @param {Object} muscleReadiness - Muscle readiness scores
  * @param {number} systemicReadiness - Systemic readiness score
  * @param {Object} weeklyStimulus - Weekly stimulus tracking
+ * @param {Object} stimulusHistory - Historical stimulus data (optional)
  * @returns {Object} Progression recommendation
  */
 export function getProgression(
@@ -22,7 +25,8 @@ export function getProgression(
   workouts,
   muscleReadiness,
   systemicReadiness,
-  weeklyStimulus
+  weeklyStimulus,
+  stimulusHistory = null
 ) {
   // Find the exercise
   const exercise = exercises.find(e => e.id == exerciseId);
@@ -43,7 +47,7 @@ export function getProgression(
   if (exerciseHistory.length === 0) {
     return {
       advice: 'first_time',
-      suggestion: 'Start with a moderate weight you can control for the target rep range',
+      suggestion: 'Start conservative - focus on technique and find your working weight',
       readiness: 'high',
       muscleReadiness: 1.0,
       systemicReadiness: 1.0
@@ -64,7 +68,8 @@ export function getProgression(
     minMuscleReadiness,
     systemicReadiness,
     exercise,
-    weeklyStimulus
+    weeklyStimulus,
+    exerciseHistory
   );
   
   if (deloadCheck.needed) {
@@ -73,7 +78,7 @@ export function getProgression(
       readiness: 'deload',
       suggestion: deloadCheck.suggestion,
       reason: deloadCheck.reason,
-      deloadPercentage: PROGRESSION_CONFIG.DELOAD_PERCENTAGE,
+      deloadProtocol: deloadCheck.protocol,
       muscleReadiness: minMuscleReadiness,
       systemicReadiness
     };
@@ -83,16 +88,27 @@ export function getProgression(
   const performanceAnalysis = analyzePerformance(
     lastPerformance,
     previousPerformance,
+    exercise,
+    exerciseHistory
+  );
+  
+  // Check for stimulus stagnation
+  const stimulusCheck = checkStimulusStagnation(
+    exerciseHistory,
+    minMuscleReadiness,
+    weeklyStimulus,
     exercise
   );
   
-  // Determine progression based on readiness and performance
+  // Determine progression based on readiness, performance, and stimulus efficiency
   return determineProgression(
     performanceAnalysis,
+    stimulusCheck,
     minMuscleReadiness,
     systemicReadiness,
     exercise,
-    lastPerformance
+    lastPerformance,
+    weeklyStimulus
   );
 }
 
@@ -103,16 +119,36 @@ function checkDeloadConditions(
   muscleReadiness,
   systemicReadiness,
   exercise,
-  weeklyStimulus
+  weeklyStimulus,
+  exerciseHistory
 ) {
   const deloadThreshold = FATIGUE_CONFIG.DELOAD_THRESHOLD;
+  
+  // Critical systemic fatigue
+  if (systemicReadiness < 0.5) {
+    return {
+      needed: true,
+      reason: 'Critical systemic fatigue',
+      suggestion: 'Take 3-5 days off or do very light activity only',
+      protocol: {
+        action: 'rest',
+        duration: '3-5 days'
+      }
+    };
+  }
   
   // Systemic deload needed
   if (systemicReadiness < deloadThreshold) {
     return {
       needed: true,
       reason: 'Systemic fatigue is high',
-      suggestion: 'Reduce weight by 30%, increase RIR by 2-3, and reduce total sets by 40-60%'
+      suggestion: 'Reduce all training volume by 40-50%, increase RIR by 2-3, remove or lighten axial loads',
+      protocol: {
+        setReduction: 0.5,
+        rirIncrease: 2,
+        weightReduction: exercise.axial ? 0.3 : 0.2,
+        duration: '4-7 days'
+      }
     };
   }
   
@@ -121,8 +157,39 @@ function checkDeloadConditions(
     return {
       needed: true,
       reason: 'Target muscles need recovery',
-      suggestion: 'Reduce weight by 20-30% or take an extra rest day before training these muscles'
+      suggestion: 'Reduce volume by 30-40% for this exercise, add 1-2 RIR, or take an extra rest day',
+      protocol: {
+        setReduction: 0.35,
+        rirIncrease: 1,
+        weightMaintain: true,
+        duration: '1-2 sessions'
+      }
     };
+  }
+  
+  // Check for performance decline despite adequate recovery
+  if (exerciseHistory.length >= 3 && muscleReadiness > 0.75) {
+    const recent = exerciseHistory.slice(0, 3);
+    const volumes = recent.map(w => {
+      if (!w.sets || w.sets.length === 0) return 0;
+      return w.sets.reduce((sum, s) => sum + s.w * s.r, 0);
+    });
+    
+    // If volume is declining despite good readiness, might be overtraining
+    const isDecining = volumes.every((v, i, arr) => i === 0 || v <= arr[i-1]);
+    if (isDecining) {
+      return {
+        needed: true,
+        reason: 'Performance declining despite adequate recovery - possible overtraining',
+        suggestion: 'Take a deload week to resensitize to training stimulus',
+        protocol: {
+          setReduction: 0.4,
+          rirIncrease: 2,
+          weightReduction: 0.2,
+          duration: '1 week'
+        }
+      };
+    }
   }
   
   // Check for excessive volume
@@ -131,11 +198,16 @@ function checkDeloadConditions(
     ? primaryMuscles.reduce((sum, m) => sum + (weeklyStimulus[m] || 0), 0) / primaryMuscles.length
     : 0;
   
-  if (avgWeeklyStimulus > PROGRESSION_CONFIG.MAX_SETS_PER_WEEK) {
+  if (avgWeeklyStimulus > PROGRESSION_CONFIG.MAX_WEEKLY_STIMULUS) {
     return {
       needed: true,
-      reason: 'Weekly volume is excessive',
-      suggestion: 'Reduce sets this week to allow for recovery'
+      reason: 'Weekly volume is excessive for target muscles',
+      suggestion: 'Reduce total sets this week to allow adaptation',
+      protocol: {
+        setReduction: 0.3,
+        rirIncrease: 1,
+        duration: '1 week'
+      }
     };
   }
   
@@ -145,7 +217,7 @@ function checkDeloadConditions(
 /**
  * Analyze performance trend
  */
-function analyzePerformance(lastPerformance, previousPerformance, exercise) {
+function analyzePerformance(lastPerformance, previousPerformance, exercise, history) {
   if (!lastPerformance || !lastPerformance.sets || lastPerformance.sets.length === 0) {
     return { trend: 'insufficient_data' };
   }
@@ -158,8 +230,10 @@ function analyzePerformance(lastPerformance, previousPerformance, exercise) {
   // Calculate average RIR
   const avgRir = lastSets.reduce((sum, set) => sum + set.rir, 0) / lastSets.length;
   
-  // Check if performance improved from previous session
+  // Calculate volume and intensity trends
   let performanceChange = 'stable';
+  let volumeTrend = 'stable';
+  
   if (previousPerformance && previousPerformance.sets && previousPerformance.sets.length > 0) {
     const prevTopSet = previousPerformance.sets.reduce((max, set) => 
       (set.w * set.r > max.w * max.r) ? set : max
@@ -168,12 +242,36 @@ function analyzePerformance(lastPerformance, previousPerformance, exercise) {
     const lastVolume = lastTopSet.w * lastTopSet.r;
     const prevVolume = prevTopSet.w * prevTopSet.r;
     
+    // Performance change
     if (lastVolume > prevVolume * 1.05) performanceChange = 'improved';
     else if (lastVolume < prevVolume * 0.95) performanceChange = 'declined';
+    
+    // Intensity trend (weight increased?)
+    if (lastTopSet.w > prevTopSet.w * 1.02) volumeTrend = 'increasing';
+    else if (lastTopSet.w < prevTopSet.w * 0.98) volumeTrend = 'decreasing';
+  }
+  
+  // Check longer-term trend if available
+  let longTermTrend = 'stable';
+  if (history.length >= 4) {
+    const recent4 = history.slice(0, 4);
+    const volumes = recent4.map(w => {
+      if (!w.sets || w.sets.length === 0) return 0;
+      const top = w.sets.reduce((max, s) => (s.w * s.r > max.w * max.r) ? s : max, w.sets[0]);
+      return top.w * top.r;
+    }).reverse(); // Oldest to newest
+    
+    const increasing = volumes.every((v, i, arr) => i === 0 || v >= arr[i-1] * 0.95);
+    const decreasing = volumes.every((v, i, arr) => i === 0 || v <= arr[i-1] * 1.05);
+    
+    if (increasing) longTermTrend = 'increasing';
+    else if (decreasing) longTermTrend = 'decreasing';
   }
   
   return {
     trend: performanceChange,
+    volumeTrend,
+    longTermTrend,
     avgRir,
     topSet: lastTopSet,
     setCount: lastSets.length
@@ -181,92 +279,261 @@ function analyzePerformance(lastPerformance, previousPerformance, exercise) {
 }
 
 /**
- * Determine progression recommendation
+ * Check for stimulus stagnation
  */
-function determineProgression(
-  performanceAnalysis,
-  muscleReadiness,
-  systemicReadiness,
-  exercise,
-  lastPerformance
-) {
-  const { trend, avgRir, topSet } = performanceAnalysis;
-  const progressionThreshold = FATIGUE_CONFIG.PROGRESSION_THRESHOLD;
+function checkStimulusStagnation(exerciseHistory, muscleReadiness, weeklyStimulus, exercise) {
+  if (exerciseHistory.length < 3) {
+    return {
+      stagnant: false,
+      message: 'Insufficient history to detect stagnation'
+    };
+  }
   
-  // Both readiness scores are high
-  if (muscleReadiness >= progressionThreshold && systemicReadiness >= progressionThreshold) {
-    // Low RIR means ready to progress
-    if (avgRir <= PROGRESSION_CONFIG.RIR_PROGRESSION_THRESHOLD) {
-      const increment = getProgressionIncrement(exercise.type);
+  // Get recent volumes
+  const recent = exerciseHistory.slice(0, 4).map(w => {
+    if (!w.sets || w.sets.length === 0) return 0;
+    return w.sets.reduce((sum, s) => sum + s.w * s.r, 0);
+  });
+  
+  const avgVolume = recent.reduce((a, b) => a + b, 0) / recent.length;
+  const isFlat = recent.every(v => Math.abs(v - avgVolume) < avgVolume * 0.15);
+  
+  // Stagnation: volume is flat AND readiness is good
+  if (isFlat && muscleReadiness > 0.8) {
+    // Check if we're under optimal volume
+    const primaryMuscles = exercise.prim || [];
+    const avgStimulus = primaryMuscles.length > 0
+      ? primaryMuscles.reduce((sum, m) => sum + (weeklyStimulus[m] || 0), 0) / primaryMuscles.length
+      : 0;
+    
+    if (avgStimulus < PROGRESSION_CONFIG.OPTIMAL_SETS_PER_WEEK) {
       return {
-        advice: 'progress',
-        readiness: 'high',
-        suggestion: `Increase weight by ${increment}lbs. You're performing well with low RIR.`,
-        recommendedWeight: topSet.w + increment,
-        muscleReadiness,
-        systemicReadiness
+        stagnant: true,
+        message: 'Volume has plateaued but you can handle more',
+        recommendation: 'add_volume'
       };
     }
     
-    // High RIR means can push harder
+    return {
+      stagnant: true,
+      message: 'Performance has plateaued at current volume',
+      recommendation: 'increase_intensity'
+    };
+  }
+  
+  return {
+    stagnant: false,
+    message: 'Progressing normally'
+  };
+}
+
+/**
+ * Determine progression recommendation
+ * Goal: Maximize area under stimulus curve while managing fatigue
+ */
+function determineProgression(
+  performanceAnalysis,
+  stimulusCheck,
+  muscleReadiness,
+  systemicReadiness,
+  exercise,
+  lastPerformance,
+  weeklyStimulus
+) {
+  const { trend, avgRir, topSet, longTermTrend } = performanceAnalysis;
+  const progressionThreshold = FATIGUE_CONFIG.PROGRESSION_THRESHOLD;
+  
+  // OPTIMAL READINESS - Ready to push for more stimulus
+  if (muscleReadiness >= progressionThreshold && systemicReadiness >= progressionThreshold) {
+    
+    // Stimulus is stagnant - need to change something
+    if (stimulusCheck.stagnant) {
+      if (stimulusCheck.recommendation === 'add_volume') {
+        return {
+          advice: 'add_volume',
+          readiness: 'high',
+          suggestion: 'Add 1-2 sets to increase stimulus. Your recovery can handle more volume.',
+          recommendedSets: (lastPerformance.sets?.length || 3) + 1,
+          muscleReadiness,
+          systemicReadiness
+        };
+      } else {
+        // Increase intensity
+        if (avgRir <= 1) {
+          const increment = getProgressionIncrement(exercise.type);
+          return {
+            advice: 'progress',
+            readiness: 'high',
+            suggestion: `Great work! Increase weight by ${increment}lb. You're consistently close to failure.`,
+            recommendedWeight: topSet.w + increment,
+            muscleReadiness,
+            systemicReadiness
+          };
+        } else {
+          return {
+            advice: 'reduce_rir',
+            readiness: 'high',
+            suggestion: 'Push closer to failure (reduce RIR by 1-2) before adding weight',
+            recommendedRirReduction: avgRir > 3 ? 2 : 1,
+            muscleReadiness,
+            systemicReadiness
+          };
+        }
+      }
+    }
+    
+    // Normal progression path - low RIR means ready for more weight
+    if (avgRir <= PROGRESSION_CONFIG.RIR_PROGRESSION_THRESHOLD) {
+      const increment = getProgressionIncrement(exercise.type);
+      
+      // Check if long-term trend is positive
+      if (longTermTrend === 'increasing') {
+        return {
+          advice: 'progress',
+          readiness: 'high',
+          suggestion: `Excellent progress! Increase weight by ${increment}lb.`,
+          recommendedWeight: topSet.w + increment,
+          reason: 'Consistent performance improvement with low RIR',
+          muscleReadiness,
+          systemicReadiness
+        };
+      } else {
+        return {
+          advice: 'progress',
+          readiness: 'high',
+          suggestion: `Time to progress. Increase weight by ${increment}lb.`,
+          recommendedWeight: topSet.w + increment,
+          muscleReadiness,
+          systemicReadiness
+        };
+      }
+    }
+    
+    // High RIR - can push harder before adding weight
     if (avgRir >= 3) {
       return {
         advice: 'push_harder',
         readiness: 'high',
-        suggestion: 'Try to get closer to failure (reduce RIR by 1-2) before adding weight',
+        suggestion: 'You have room to push harder. Reduce RIR by 1-2 to maximize stimulus.',
+        recommendedRirReduction: 2,
         muscleReadiness,
         systemicReadiness
       };
     }
     
-    // Moderate RIR - maintain
+    // Moderate RIR - optimal training zone
     return {
       advice: 'maintain',
       readiness: 'high',
-      suggestion: 'Keep current weight and aim for more reps or lower RIR',
+      suggestion: 'Maintain current approach - you\'re in the optimal stimulus zone.',
+      reason: 'Good RIR range (2-3) with high readiness',
       muscleReadiness,
       systemicReadiness
     };
   }
   
-  // Moderate readiness
+  // MODERATE READINESS - Maintain or slightly reduce
   if (muscleReadiness >= 0.65 && systemicReadiness >= 0.65) {
-    if (trend === 'declined') {
+    
+    // Performance is declining - need recovery
+    if (trend === 'declined' || longTermTrend === 'decreasing') {
       return {
         advice: 'reduce',
         readiness: 'moderate',
-        suggestion: 'Performance declined. Reduce weight by 5-10% to maintain quality',
+        suggestion: 'Performance is declining. Add 1 RIR and maintain weight to prioritize recovery.',
         reason: 'Recent performance decline suggests accumulated fatigue',
+        recommendedRirIncrease: 1,
         muscleReadiness,
         systemicReadiness
       };
     }
     
+    // Performance is stable - maintain with focus on quality
     return {
       advice: 'maintain',
       readiness: 'moderate',
-      suggestion: 'Maintain current load and focus on movement quality',
+      suggestion: 'Maintain current load and focus on movement quality and technique.',
+      reason: 'Moderate readiness - prioritize quality over progression',
       muscleReadiness,
       systemicReadiness
     };
   }
   
-  // Low readiness but not quite deload territory
+  // LOW READINESS - Reduce intensity to preserve stimulus capability
   return {
     advice: 'reduce',
     readiness: 'low',
-    suggestion: 'Reduce intensity - add 1-2 RIR or reduce weight by 10%',
-    reason: 'Readiness is lower than optimal',
+    suggestion: 'Add 1-2 RIR to reduce fatigue accumulation. Maintain technique focus.',
+    reason: 'Readiness is below optimal - reducing intensity prevents further fatigue accumulation',
+    recommendedRirIncrease: muscleReadiness < 0.5 ? 2 : 1,
     muscleReadiness,
     systemicReadiness
   };
 }
 
 /**
+ * Generate deload protocol based on current state
+ */
+export function generateDeloadProtocol(exercise, lastPerformance, readiness) {
+  if (!lastPerformance || !lastPerformance.sets) {
+    return {
+      sets: Math.ceil(3 * (1 - PROGRESSION_CONFIG.DELOAD_SET_REDUCTION)),
+      reps: 8,
+      weight: null,
+      rir: 4,
+      duration: '1 week'
+    };
+  }
+  
+  const avgWeight = lastPerformance.sets.reduce((sum, s) => sum + s.w, 0) / lastPerformance.sets.length;
+  const avgReps = lastPerformance.sets.reduce((sum, s) => sum + s.r, 0) / lastPerformance.sets.length;
+  const setCount = lastPerformance.sets.length;
+  
+  // Severity based on readiness
+  const severity = readiness < 0.5 ? 'high' : readiness < 0.65 ? 'moderate' : 'light';
+  
+  const protocols = {
+    high: {
+      setReduction: 0.5,
+      weightReduction: 0.3,
+      rirIncrease: 3,
+      duration: '1-2 weeks'
+    },
+    moderate: {
+      setReduction: 0.4,
+      weightReduction: 0.2,
+      rirIncrease: 2,
+      duration: '1 week'
+    },
+    light: {
+      setReduction: 0.3,
+      weightReduction: 0.15,
+      rirIncrease: 1,
+      duration: '3-5 days'
+    }
+  };
+  
+  const protocol = protocols[severity];
+  
+  return {
+    sets: Math.max(1, Math.ceil(setCount * (1 - protocol.setReduction))),
+    reps: Math.ceil(avgReps * 0.9),
+    weight: Math.round(avgWeight * (1 - protocol.weightReduction) / 2.5) * 2.5,
+    rir: Math.min(5, avgReps + protocol.rirIncrease),
+    duration: protocol.duration,
+    severity,
+    instructions: [
+      `Use ${Math.round((1 - protocol.weightReduction) * 100)}% of normal working weight`,
+      `Reduce sets by ${Math.round(protocol.setReduction * 100)}%`,
+      `Keep ${protocol.rirIncrease + 2}-${protocol.rirIncrease + 4} RIR on all sets`,
+      'Focus on movement quality and technique',
+      exercise.axial ? 'Consider removing or significantly lightening this axial exercise' : null
+    ].filter(Boolean)
+  };
+}
+
+/**
  * Calculate suggested starting weight for a new exercise
- * @param {Object} exercise - Exercise object
- * @param {Array} workouts - Workout history
- * @returns {number} Suggested weight
  */
 export function suggestStartingWeight(exercise, workouts) {
   // Check for similar exercises
@@ -278,11 +545,11 @@ export function suggestStartingWeight(exercise, workouts) {
   
   if (similarExercises.length === 0) {
     // No history - suggest conservative starting points
-    if (exercise.type === 'compound_upper') return 45; // Empty barbell
-    if (exercise.type === 'compound_lower') return 95; // Barbell + small plates
-    if (exercise.type === 'isolation_upper') return 15; // Light dumbbells
+    if (exercise.type === 'compound_upper') return 45;
+    if (exercise.type === 'compound_lower') return 95;
+    if (exercise.type === 'isolation_upper') return 15;
     if (exercise.type === 'isolation_lower') return 20;
-    return 20; // Conservative default
+    return 20;
   }
   
   // Use average of similar exercises, reduced by 20% for safety
@@ -294,36 +561,49 @@ export function suggestStartingWeight(exercise, workouts) {
     return sum;
   }, 0) / similarExercises.length;
   
-  return Math.round(avgWeight * 0.8 / 2.5) * 2.5; // Round to nearest 2.5lbs
+  return Math.round(avgWeight * 0.8 / 2.5) * 2.5;
 }
 
 /**
- * Calculate recommended volume for muscle group
- * @param {string} muscle - Muscle name
- * @param {Object} weeklyStimulus - Current weekly volume
- * @returns {Object} Volume recommendation
+ * Get volume recommendation for muscle group
  */
-export function getVolumeRecommendation(muscle, weeklyStimulus) {
-  const currentVolume = weeklyStimulus[muscle] || 0;
+export function getVolumeRecommendation(muscle, weeklyStimulus, muscleReadiness) {
+  const currentStimulus = weeklyStimulus[muscle] || 0;
+  const readiness = muscleReadiness[muscle] || 1.0;
   const { MIN_SETS_PER_WEEK, MAX_SETS_PER_WEEK, OPTIMAL_SETS_PER_WEEK } = PROGRESSION_CONFIG;
   
-  if (currentVolume < MIN_SETS_PER_WEEK) {
+  // Under minimum volume
+  if (currentStimulus < MIN_SETS_PER_WEEK) {
     return {
       status: 'low',
-      message: `Add ${MIN_SETS_PER_WEEK - currentVolume} more sets this week`,
-      recommendation: 'increase'
+      message: `Add ${Math.ceil(MIN_SETS_PER_WEEK - currentStimulus)} more sets this week`,
+      recommendation: 'increase',
+      targetSets: MIN_SETS_PER_WEEK
     };
   }
   
-  if (currentVolume > MAX_SETS_PER_WEEK) {
+  // Over maximum volume
+  if (currentStimulus > MAX_SETS_PER_WEEK) {
     return {
       status: 'high',
-      message: `Consider reducing volume - currently ${currentVolume - MAX_SETS_PER_WEEK} sets over maximum`,
-      recommendation: 'decrease'
+      message: `Reduce volume by ${Math.ceil(currentStimulus - MAX_SETS_PER_WEEK)} sets`,
+      recommendation: 'decrease',
+      targetSets: MAX_SETS_PER_WEEK
     };
   }
   
-  if (currentVolume >= MIN_SETS_PER_WEEK && currentVolume <= OPTIMAL_SETS_PER_WEEK) {
+  // In optimal range
+  if (currentStimulus >= MIN_SETS_PER_WEEK && currentStimulus <= OPTIMAL_SETS_PER_WEEK) {
+    // But if readiness is very high, could add more
+    if (readiness > 0.9 && currentStimulus < OPTIMAL_SETS_PER_WEEK) {
+      return {
+        status: 'good_can_add',
+        message: `Volume is good, but high readiness suggests room for ${Math.ceil(OPTIMAL_SETS_PER_WEEK - currentStimulus)} more sets`,
+        recommendation: 'increase_optional',
+        targetSets: OPTIMAL_SETS_PER_WEEK
+      };
+    }
+    
     return {
       status: 'optimal',
       message: 'Volume is in optimal range',
@@ -331,43 +611,10 @@ export function getVolumeRecommendation(muscle, weeklyStimulus) {
     };
   }
   
+  // Between optimal and maximum
   return {
     status: 'moderate_high',
-    message: 'Volume is slightly high but manageable',
+    message: 'Volume is on the higher end but manageable',
     recommendation: 'monitor'
-  };
-}
-
-/**
- * Generate deload protocol
- * @param {Object} exercise - Exercise object
- * @param {Object} lastPerformance - Last workout performance
- * @returns {Object} Deload recommendations
- */
-export function generateDeloadProtocol(exercise, lastPerformance) {
-  if (!lastPerformance || !lastPerformance.sets) {
-    return {
-      sets: Math.ceil(3 * 0.5), // 50% reduction
-      reps: 8,
-      weight: null,
-      rir: 4
-    };
-  }
-  
-  const avgWeight = lastPerformance.sets.reduce((sum, s) => sum + s.w, 0) / lastPerformance.sets.length;
-  const avgReps = lastPerformance.sets.reduce((sum, s) => sum + s.r, 0) / lastPerformance.sets.length;
-  
-  return {
-    sets: Math.max(1, Math.ceil(lastPerformance.sets.length * 0.5)),
-    reps: Math.ceil(avgReps * 0.8),
-    weight: Math.round(avgWeight * (1 - PROGRESSION_CONFIG.DELOAD_PERCENTAGE) / 2.5) * 2.5,
-    rir: 4,
-    instructions: [
-      'Use 70% of normal working weight',
-      'Reduce sets by 50%',
-      'Keep 3-4 RIR on all sets',
-      'Focus on movement quality and technique',
-      'Consider reducing or removing axially loaded exercises'
-    ]
   };
 }
