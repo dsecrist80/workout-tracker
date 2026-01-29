@@ -44,6 +44,7 @@ const { userId, username, isAuthenticated, isLoading: authLoading, login, regist
   const { 
     workouts, 
     addSession,
+    updateSession,
     getWorkoutsForExercise,
     deleteWorkout: removeWorkout
   } = useWorkouts(userId);
@@ -76,6 +77,7 @@ const { userId, username, isAuthenticated, isLoading: authLoading, login, regist
     muscleReadiness,
     systemicReadiness,
     lastWorkoutDate,
+    readinessHistory,
     processWorkoutSession
   } = useFatigue(userId, workouts);
 
@@ -98,6 +100,30 @@ const { userId, username, isAuthenticated, isLoading: authLoading, login, regist
    */
   const handleDeleteWorkout = async (timestamp) => {
     await removeWorkout(timestamp);
+  };
+
+  /**
+   * Auto-save session (without advancing program day)
+   * Uses updateSession to replace existing workouts for the date instead of appending
+   */
+  const handleAutoSave = async (session, date) => {
+    console.log('🟡 APP handleAutoSave CALLED');
+    console.log('  Session:', session);
+    console.log('  Session length:', session.length);
+    console.log('  Date:', date);
+    
+    if (session.length === 0) {
+      console.log('  ⚠️ Empty session - skipping');
+      return;
+    }
+    
+    try {
+      console.log('  ⏳ Calling updateSession...');
+      await updateSession(session, date);
+      console.log('  ✅ handleAutoSave COMPLETE');
+    } catch (error) {
+      console.error('  ❌ Auto-save failed:', error);
+    }
   };
 
   /**
@@ -130,6 +156,25 @@ const { userId, username, isAuthenticated, isLoading: authLoading, login, regist
     // Advance program day if active
     if (activeProgram) {
       advanceToNextDay();
+    }
+  };
+
+  /**
+   * Save recovery data only (fatigue/soreness) without advancing program
+   * Used for logging how you feel on non-training days
+   */
+  const handleSaveRecoveryOnly = async (date, perceivedFatigue, muscleSoreness) => {
+    console.log('💾 handleSaveRecoveryOnly called:');
+    console.log('  date:', date);
+    console.log('  perceivedFatigue:', perceivedFatigue);
+    console.log('  muscleSoreness:', muscleSoreness);
+    
+    try {
+      // Process as empty session (no exercises) without program context
+      // This updates fatigue state but doesn't advance the program
+      await processWorkoutSession([], date, { perceivedFatigue, muscleSoreness }, null);
+    } catch (error) {
+      console.error('Failed to save recovery data:', error);
     }
   };
 
@@ -340,6 +385,8 @@ const { userId, username, isAuthenticated, isLoading: authLoading, login, regist
             currentDayIndex={currentDayIndex}
             getCurrentDay={getCurrentDay}
             onSessionComplete={handleSessionComplete}
+            onAutoSave={handleAutoSave}
+            onSaveRecoveryOnly={handleSaveRecoveryOnly}
             onLoadProgramDay={handleLoadProgramDay}
             useRestTimer={() => restTimer}
             settings={settings}
@@ -350,6 +397,7 @@ const { userId, username, isAuthenticated, isLoading: authLoading, login, regist
         {view === 'history' && (
           <HistoryView
             workouts={workouts}
+            readinessHistory={readinessHistory}
             onUpdateWorkout={handleUpdateWorkout}
             onDeleteWorkout={handleDeleteWorkout}
             theme={currentTheme}

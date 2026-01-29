@@ -55,6 +55,48 @@ export function useFatigue(userId, workoutHistory = []) {
   const [error, setError] = useState(null);
 
   /**
+   * Helper: Remove undefined values from object for Firebase
+   */
+  const cleanObject = (obj) => {
+    if (obj === null || obj === undefined) return null;
+    if (typeof obj !== 'object') return obj;
+    
+    // Handle arrays
+    if (Array.isArray(obj)) {
+      return obj
+        .filter(item => item !== undefined)
+        .map(item => cleanObject(item)); // Recursively clean array items
+    }
+    
+    // Handle objects
+    const cleaned = {};
+    Object.keys(obj).forEach(key => {
+      const value = obj[key];
+      
+      // Skip undefined values
+      if (value === undefined) {
+        return;
+      }
+      
+      // Handle arrays
+      if (Array.isArray(value)) {
+        cleaned[key] = value
+          .filter(item => item !== undefined)
+          .map(item => cleanObject(item)); // Recursively clean
+      }
+      // Recursively clean nested objects
+      else if (value && typeof value === 'object') {
+        cleaned[key] = cleanObject(value);
+      }
+      // Include primitive values
+      else {
+        cleaned[key] = value;
+      }
+    });
+    return cleaned;
+  };
+
+  /**
    * Load fatigue state from database
    */
   const loadFatigueState = useCallback(async () => {
@@ -111,7 +153,8 @@ export function useFatigue(userId, workoutHistory = []) {
     }
 
     try {
-      await databaseService.saveFatigueState(userId, {
+      console.log('💾 Saving fatigue state...');
+      const rawData = {
         localFatigue,
         systemicFatigue,
         weeklyStimulus,
@@ -120,7 +163,30 @@ export function useFatigue(userId, workoutHistory = []) {
         lastUpdateDate: new Date().toISOString().split('T')[0],
         performanceErrors,
         readinessHistory
-      });
+      };
+      console.log('  Raw data:', rawData);
+      
+      // Try to stringify to find undefined values
+      try {
+        JSON.stringify(rawData);
+      } catch (e) {
+        console.error('  ❌ Data contains non-serializable values:', e);
+      }
+      
+      const fatigueData = cleanObject(rawData);
+      
+      console.log('  Cleaned data:', fatigueData);
+      
+      // Try to stringify cleaned data
+      try {
+        const stringified = JSON.stringify(fatigueData);
+        console.log('  Stringified successfully, length:', stringified.length);
+      } catch (e) {
+        console.error('  ❌ Cleaned data still has issues:', e);
+      }
+      
+      await databaseService.saveFatigueState(userId, fatigueData);
+      console.log('  ✅ Fatigue saved successfully');
       return true;
     } catch (err) {
       console.error('Failed to save fatigue state:', err);
@@ -147,6 +213,9 @@ export function useFatigue(userId, workoutHistory = []) {
    * @returns {boolean} Success status
    */
   const processWorkoutSession = useCallback(async (session, date, observationalData = {}, programContext = null) => {
+    console.log('🏋️ processWorkoutSession:');
+    console.log('  observationalData received:', observationalData);
+    
     try {
       // Add workout history to program context
       const contextWithHistory = programContext ? {
@@ -169,6 +238,11 @@ export function useFatigue(userId, workoutHistory = []) {
       );
       
       // Update state
+      console.log('📊 Updating fatigue state after session:');
+      console.log('  weeklyStimulus:', result.weeklyStimulus);
+      console.log('  sessionStimulus:', result.sessionStimulus);
+      console.log('  totalStimulus:', Object.values(result.weeklyStimulus || {}).reduce((a,b) => a+b, 0));
+      
       setLocalFatigue(result.localFatigue);
       setSystemicFatigue(result.systemicFatigue);
       setWeeklyStimulus(result.weeklyStimulus);
@@ -203,9 +277,17 @@ export function useFatigue(userId, workoutHistory = []) {
           avgMuscleReadiness: Object.values(result.muscleReadiness).reduce((a, b) => a + b, 0) / MUSCLES.length,
           isRestDay: result.isRestDay || false,
           actualRestDays: result.actualRestDays,
-          plannedRestDays: result.plannedRestDays
+          plannedRestDays: result.plannedRestDays,
+          // Add user-reported data
+          perceivedFatigue: observationalData.perceivedFatigue || perceivedFatigue,
+          muscleSoreness: observationalData.muscleSoreness || muscleSoreness
         }
       ];
+      const latestEntry = newReadinessHistory[newReadinessHistory.length - 1];
+      console.log('📝 New readiness entry:');
+      console.log('  Full object:', JSON.stringify(latestEntry, null, 2));
+      console.log('  perceivedFatigue:', latestEntry.perceivedFatigue);
+      console.log('  muscleSoreness:', latestEntry.muscleSoreness);
       setReadinessHistory(newReadinessHistory);
       
       // Track performance errors if provided (only for training days)
@@ -220,17 +302,47 @@ export function useFatigue(userId, workoutHistory = []) {
         setPerformanceErrors(newErrors);
       }
       
-      // Save to database
-      await databaseService.saveFatigueState(userId, {
+      // Save to database - clean undefined values
+      console.log('💾 Saving fatigue from processWorkoutSession...');
+      const rawFatigueData = {
         localFatigue: result.localFatigue,
         systemicFatigue: result.systemicFatigue,
         weeklyStimulus: result.weeklyStimulus,
-        stimulusHistory: !result.isRestDay ? stimulusHistory : stimulusHistory, // Don't modify on rest days
+        stimulusHistory: !result.isRestDay ? stimulusHistory : stimulusHistory,
         lastWorkoutDate: result.isRestDay ? lastWorkoutDate : result.lastWorkoutDate,
         lastUpdateDate: date,
         performanceErrors,
         readinessHistory: newReadinessHistory
-      });
+      };
+      console.log('  Raw fatigue data:', rawFatigueData);
+      
+      const fatigueData = cleanObject(rawFatigueData);
+      console.log('  Cleaned fatigue data:', fatigueData);
+      
+      // Deep check for undefined
+      const checkUndefined = (obj, path = '') => {
+        Object.keys(obj).forEach(key => {
+          const val = obj[key];
+          const currentPath = path ? `${path}.${key}` : key;
+          if (val === undefined) {
+            console.error(`  ❌ FOUND UNDEFINED at: ${currentPath}`);
+          } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+            checkUndefined(val, currentPath);
+          } else if (Array.isArray(val)) {
+            val.forEach((item, i) => {
+              if (item === undefined) {
+                console.error(`  ❌ FOUND UNDEFINED at: ${currentPath}[${i}]`);
+              } else if (item && typeof item === 'object') {
+                checkUndefined(item, `${currentPath}[${i}]`);
+              }
+            });
+          }
+        });
+      };
+      checkUndefined(fatigueData);
+      
+      await databaseService.saveFatigueState(userId, fatigueData);
+      console.log('  ✅ Fatigue from processWorkoutSession saved');
       
       return true;
     } catch (err) {
@@ -284,8 +396,15 @@ export function useFatigue(userId, workoutHistory = []) {
     
     // Decay weekly stimulus
     const daysSince = lastUpdateDate ? getDaysBetween(lastUpdateDate, currentDate) : 0;
+    console.log('📉 Weekly Stimulus Decay Check:');
+    console.log('  Last update date:', lastUpdateDate);
+    console.log('  Current date:', currentDate);
+    console.log('  Days since:', daysSince);
+    console.log('  Current weeklyStimulus:', weeklyStimulus);
+    
     if (daysSince > 0) {
       const decayedStimulus = decayWeeklyStimulus(weeklyStimulus, daysSince);
+      console.log('  Decayed weeklyStimulus:', decayedStimulus);
       setWeeklyStimulus(decayedStimulus);
     }
     

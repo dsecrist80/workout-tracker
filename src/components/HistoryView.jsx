@@ -9,11 +9,14 @@ import { getDays, fmtDate, formatDateLong } from '../utils/dateHelpers';
 /**
  * History view component with calendar
  */
-export function HistoryView({ workouts, onUpdateWorkout, onDeleteWorkout, theme }) {
+export function HistoryView({ workouts, readinessHistory = [], onUpdateWorkout, onDeleteWorkout, theme }) {
   const [selectedDate, setSelectedDate] = useState(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [editingWorkout, setEditingWorkout] = useState(null);
   const [editingSets, setEditingSets] = useState([]);
+
+  // Debug: Log readinessHistory
+  console.log('📊 HistoryView readinessHistory:', readinessHistory);
 
   // Get calendar days for current month
   const calendarDays = getDays(currentMonth);
@@ -169,27 +172,38 @@ export function HistoryView({ workouts, onUpdateWorkout, onDeleteWorkout, theme 
 
                 const dateKey = fmtDate(day);
                 const dayWorkouts = workoutsByDate[dateKey] || [];
+                const dayRecoveryData = readinessHistory.find(r => r.date === dateKey);
+                const hasRecoveryData = dayRecoveryData && 
+                  (dayRecoveryData.perceivedFatigue !== undefined || 
+                   (dayRecoveryData.muscleSoreness && Object.keys(dayRecoveryData.muscleSoreness).length > 0));
+                const hasData = dayWorkouts.length > 0 || hasRecoveryData;
                 const isToday = dateKey === today;
                 const isSelected = dateKey === selectedDate;
 
                 return (
                   <button
                     key={i}
-                    onClick={() => dayWorkouts.length > 0 && setSelectedDate(dateKey)}
+                    onClick={() => hasData && setSelectedDate(dateKey)}
                     className={`aspect-square rounded-lg flex flex-col items-center justify-center text-sm sm:text-base transition-all ${
-                      dayWorkouts.length > 0
-                        ? 'bg-green-100 hover:bg-green-200 cursor-pointer font-semibold border-2 border-green-300'
+                      hasData
+                        ? dayWorkouts.length > 0
+                          ? 'bg-green-100 hover:bg-green-200 cursor-pointer font-semibold border-2 border-green-300'
+                          : 'bg-blue-100 hover:bg-blue-200 cursor-pointer font-semibold border-2 border-blue-300'
                         : 'bg-slate-50 border-2 border-slate-200'
                     } ${isToday ? `ring-2 ${theme?.primary.split(' ')[0].replace('bg-', 'ring-') || 'ring-blue-500'}` : ''} ${
                       isSelected ? 'ring-2 ring-purple-500' : ''
                     }`}
                   >
                     <span>{day.getDate()}</span>
-                    {dayWorkouts.length > 0 && (
+                    {dayWorkouts.length > 0 ? (
                       <span className="text-xs text-green-700 font-bold">
                         {dayWorkouts.length}
                       </span>
-                    )}
+                    ) : hasRecoveryData ? (
+                      <span className="text-xs text-blue-700 font-bold">
+                        📊
+                      </span>
+                    ) : null}
                   </button>
                 );
               })}
@@ -197,7 +211,7 @@ export function HistoryView({ workouts, onUpdateWorkout, onDeleteWorkout, theme 
           </div>
 
           {/* Selected Day Details */}
-          {selectedDate && workoutsByDate[selectedDate] && (
+          {selectedDate && (workoutsByDate[selectedDate] || readinessHistory.find(r => r.date === selectedDate)) && (
             <div className="border-t-2 pt-6">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-xl sm:text-2xl font-bold">
@@ -211,6 +225,8 @@ export function HistoryView({ workouts, onUpdateWorkout, onDeleteWorkout, theme 
                 </button>
               </div>
 
+              {/* Show workouts if they exist */}
+              {workoutsByDate[selectedDate] && workoutsByDate[selectedDate].length > 0 && (
               <div className="space-y-4 stagger-children">
                 {workoutsByDate[selectedDate].map((workout, i) => (
                   <div key={i} className="border-2 p-5 rounded-lg bg-slate-50 card-hover">
@@ -361,9 +377,12 @@ export function HistoryView({ workouts, onUpdateWorkout, onDeleteWorkout, theme 
                     )}
                   </div>
                 ))}
+              </div>
+              )}
 
-                {/* Day Summary */}
-                <div className={`border-2 rounded-lg p-4 ${theme?.light || 'bg-blue-50 border-blue-200'}`}>
+                {/* Day Summary - only show if there are workouts */}
+                {workoutsByDate[selectedDate] && workoutsByDate[selectedDate].length > 0 && (
+                <div className={`border-2 rounded-lg p-4 mt-4 ${theme?.light || 'bg-blue-50 border-blue-200'}`}>
                   <div className={`font-semibold mb-2 ${theme?.text || 'text-blue-900'}`}>
                     Day Summary
                   </div>
@@ -413,7 +432,89 @@ export function HistoryView({ workouts, onUpdateWorkout, onDeleteWorkout, theme 
                     </div>
                   </div>
                 </div>
-              </div>
+                )}
+
+                {/* Recovery Data for this date */}
+                {(() => {
+                  console.log('🔍 Looking for recovery data for date:', selectedDate);
+                  console.log('  Available readinessHistory:', readinessHistory);
+                  
+                  const recoveryData = readinessHistory.find(r => r.date === selectedDate);
+                  console.log('  Found recovery data:', recoveryData);
+                  
+                  if (!recoveryData || (!recoveryData.perceivedFatigue && !recoveryData.muscleSoreness)) {
+                    console.log('  ❌ No recovery data to display');
+                    return null;
+                  }
+
+                  const hasSoreness = recoveryData.muscleSoreness && 
+                    Object.values(recoveryData.muscleSoreness).some(val => val > 0);
+                  
+                  console.log('  ✅ Displaying recovery data');
+
+                  return (
+                    <div className="mt-4 p-5 bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-lg">
+                      <h4 className="font-bold text-lg mb-4 flex items-center gap-2">
+                        <span className="text-2xl">📊</span>
+                        Recovery Data
+                      </h4>
+
+                      {/* Perceived Fatigue */}
+                      {recoveryData.perceivedFatigue !== undefined && (
+                        <div className="mb-4">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="font-semibold">Overall Fatigue:</span>
+                            <span className="text-lg font-bold">{recoveryData.perceivedFatigue}/10</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                            <div
+                              className={`h-3 rounded-full transition-all ${
+                                recoveryData.perceivedFatigue <= 3 ? 'bg-green-500' :
+                                recoveryData.perceivedFatigue <= 6 ? 'bg-yellow-500' :
+                                recoveryData.perceivedFatigue <= 8 ? 'bg-orange-500' :
+                                'bg-red-500'
+                              }`}
+                              style={{ width: `${recoveryData.perceivedFatigue * 10}%` }}
+                            />
+                          </div>
+                          <div className="flex justify-between text-xs text-gray-600 mt-1">
+                            <span>Energized</span>
+                            <span>Exhausted</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Muscle Soreness */}
+                      {hasSoreness && (
+                        <div>
+                          <div className="font-semibold mb-3">Muscle Soreness:</div>
+                          <div className="grid grid-cols-2 gap-3">
+                            {Object.entries(recoveryData.muscleSoreness)
+                              .filter(([_, value]) => value > 0)
+                              .sort((a, b) => b[1] - a[1])
+                              .map(([muscle, soreness]) => (
+                                <div key={muscle} className="flex items-center gap-2">
+                                  <span className="text-sm font-medium w-20">{muscle}:</span>
+                                  <div className="flex-1 bg-gray-200 rounded-full h-2 overflow-hidden">
+                                    <div
+                                      className={`h-2 rounded-full ${
+                                        soreness <= 3 ? 'bg-green-500' :
+                                        soreness <= 6 ? 'bg-yellow-500' :
+                                        soreness <= 8 ? 'bg-orange-500' :
+                                        'bg-red-500'
+                                      }`}
+                                      style={{ width: `${soreness * 10}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-sm font-bold w-8 text-right">{soreness}</span>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
             </div>
           )}
 

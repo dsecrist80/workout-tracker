@@ -4,13 +4,16 @@
 // =====================================================
 
 /**
- * Format date as YYYY-MM-DD
+ * Format date as YYYY-MM-DD (LOCAL TIME, not UTC)
  * @param {Date|string} date - Date object or string
  * @returns {string} Formatted date
  */
 export function fmtDate(date) {
   const d = typeof date === 'string' ? new Date(date) : date;
-  return d.toISOString().split('T')[0];
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 /**

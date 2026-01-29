@@ -109,6 +109,77 @@ export function useWorkouts(userId) {
   }, [workouts, saveWorkouts]);
 
   /**
+   * Update session for a specific date (replaces existing workouts for that date)
+   * Used for auto-save to avoid duplicates
+   * @param {Array} session - Array of exercises from session
+   * @param {string} date - Workout date
+   * @returns {boolean} Success status
+   */
+  const updateSession = useCallback(async (session, date) => {
+    console.log('🔵 UPDATE SESSION CALLED');
+    console.log('  Input session:', session);
+    console.log('  Input date:', date);
+    console.log('  Session length:', session.length);
+    console.log('  Current workouts in state:', workouts.length);
+    
+    try {
+      // Remove ALL existing workouts for this date (complete replacement)
+      const otherWorkouts = workouts.filter(w => w.date !== date);
+      console.log('  Other workouts (different dates):', otherWorkouts.length);
+      
+      // Create clean session workouts with consistent timestamps
+      const sessionWorkouts = session.map(exercise => {
+        console.log('  Processing exercise:', exercise);
+        
+        // Create clean object without undefined values
+        // Use a consistent timestamp per exercise ID + date combo to avoid duplicates
+        const exerciseKey = `${exercise.id}_${date}`;
+        const existingTimestamp = workouts.find(w => 
+          w.date === date && w.id === exercise.id
+        )?.timestamp;
+        
+        const cleanExercise = {
+          id: exercise.id,
+          name: exercise.name,
+          sets: exercise.sets || [],
+          date,
+          timestamp: existingTimestamp || exercise.timestamp || Date.now(),
+          createdAt: exercise.createdAt || new Date().toISOString()
+        };
+        
+        // Only add optional fields if they exist
+        if (exercise.muscles) cleanExercise.muscles = exercise.muscles;
+        if (exercise.type) cleanExercise.type = exercise.type;
+        if (exercise.prim) cleanExercise.prim = exercise.prim;  // Primary muscles - NEEDED for stimulus!
+        if (exercise.sec) cleanExercise.sec = exercise.sec;    // Secondary muscles
+        if (exercise.ter) cleanExercise.ter = exercise.ter;    // Tertiary muscles
+        if (exercise.axial !== undefined) cleanExercise.axial = exercise.axial;  // Axial load flag
+        if (exercise.prescribedSets !== undefined) cleanExercise.prescribedSets = exercise.prescribedSets;
+        if (exercise.prescribedReps !== undefined) cleanExercise.prescribedReps = exercise.prescribedReps;
+        if (exercise.prescribedRir !== undefined) cleanExercise.prescribedRir = exercise.prescribedRir;
+        if (exercise.prescribedWeight !== undefined) cleanExercise.prescribedWeight = exercise.prescribedWeight;
+        
+        console.log('  Cleaned exercise:', cleanExercise);
+        return cleanExercise;
+      });
+      
+      console.log('  Session workouts prepared:', sessionWorkouts);
+      console.log('  Session workouts count:', sessionWorkouts.length);
+      
+      const updated = [...sessionWorkouts, ...otherWorkouts];
+      console.log('  Total workouts to save:', updated.length);
+      
+      const result = await saveWorkouts(updated);
+      console.log('  ✅ SAVE RESULT:', result);
+      return result;
+    } catch (err) {
+      console.error('  ❌ Failed to update session:', err);
+      setError(err.message);
+      return false;
+    }
+  }, [workouts, saveWorkouts]);
+
+  /**
    * Delete workout by timestamp
    * @param {number} timestamp - Workout timestamp
    * @returns {boolean} Success status
@@ -119,6 +190,39 @@ export function useWorkouts(userId) {
       return await saveWorkouts(updated);
     } catch (err) {
       console.error('Failed to delete workout:', err);
+      setError(err.message);
+      return false;
+    }
+  }, [workouts, saveWorkouts]);
+
+  /**
+   * Remove duplicate exercises for a specific date
+   * Keeps the most recent version of each exercise (by timestamp)
+   * @param {string} date - Date to clean
+   * @returns {boolean} Success status
+   */
+  const removeDuplicates = useCallback(async (date) => {
+    try {
+      // Get workouts for this date
+      const dateWorkouts = workouts.filter(w => w.date === date);
+      const otherWorkouts = workouts.filter(w => w.date !== date);
+      
+      // Remove duplicates - keep most recent (highest timestamp) for each exercise ID
+      const uniqueWorkouts = {};
+      dateWorkouts.forEach(workout => {
+        const existing = uniqueWorkouts[workout.id];
+        if (!existing || workout.timestamp > existing.timestamp) {
+          uniqueWorkouts[workout.id] = workout;
+        }
+      });
+      
+      const cleaned = [...Object.values(uniqueWorkouts), ...otherWorkouts];
+      
+      console.log(`Removed ${dateWorkouts.length - Object.keys(uniqueWorkouts).length} duplicates from ${date}`);
+      
+      return await saveWorkouts(cleaned);
+    } catch (err) {
+      console.error('Failed to remove duplicates:', err);
       setError(err.message);
       return false;
     }
@@ -288,9 +392,11 @@ export function useWorkouts(userId) {
     // CRUD operations
     addWorkout,
     addSession,
+    updateSession,
     deleteWorkout,
     deleteWorkoutsForDate,
     clearAllWorkouts,
+    removeDuplicates,
     
     // Query operations
     getWorkoutsForExercise,

@@ -3,7 +3,7 @@
 // Session Logging UI Component
 // =====================================================
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { SetEditor } from './shared/SetEditor';
 import { ProgressionCard } from './shared/ProgressionCard';
 import { ExerciseSelector } from './shared/ExerciseSelector.jsx';
@@ -25,12 +25,15 @@ export function SessionView({
   currentDayIndex,
   getCurrentDay,
   onSessionComplete,
+  onAutoSave,
+  onSaveRecoveryOnly,
   onLoadProgramDay,
   useRestTimer,
   settings,
   theme
 }) {
   const [date, setDate] = useState(getCurrentDate());
+  const [sessionStartDate, setSessionStartDate] = useState(null);
   const [selectedExercise, setSelectedExercise] = useState('');
   const [sets, setSets] = useState([]);
   const [input, setInput] = useState({ w: '', r: '', rir: '' });
@@ -51,6 +54,28 @@ export function SessionView({
 
   // Check if timer is enabled in settings
   const timerEnabled = settings?.restTimerEnabled ?? true;
+
+  /**
+   * Load existing workout for selected date
+   */
+  useEffect(() => {
+    // Find all workouts for the selected date
+    const dateWorkouts = workouts.filter(w => w.date === date);
+    
+    if (dateWorkouts.length > 0) {
+      // Load the workouts into session (each workout is an exercise)
+      setSession(dateWorkouts);
+    } else {
+      // No workouts for this date - always clear session
+      setSession([]);
+    }
+    
+    // Clear current exercise selection and session start date when changing dates
+    setSelectedExercise('');
+    setSets([]);
+    setInput({ w: '', r: '', rir: '' });
+    setSessionStartDate(null); // Reset locked date
+  }, [date, workouts]); // Re-run when date or workouts change
 
   /**
    * Navigate to previous day
@@ -252,9 +277,32 @@ export function SessionView({
   };
 
   /**
+   * Auto-save current session to database (without advancing program)
+   */
+  const autoSaveSession = async (updatedSession) => {
+    console.log('🟢 AUTO-SAVE SESSION CALLED');
+    console.log('  Updated session:', updatedSession);
+    console.log('  Updated session length:', updatedSession.length);
+    console.log('  Date:', date);
+    
+    if (updatedSession.length === 0) {
+      console.log('  ⚠️ Session is empty - skipping save');
+      return;
+    }
+    
+    try {
+      console.log('  ⏳ Calling onAutoSave...');
+      await onAutoSave(updatedSession, date);
+      console.log('  ✅ AUTO-SAVE COMPLETE');
+    } catch (error) {
+      console.error('  ❌ Auto-save failed:', error);
+    }
+  };
+
+  /**
    * Add exercise to session
    */
-  const handleAddToSession = () => {
+  const handleAddToSession = async () => {
     if (!selectedExercise || sets.length === 0) {
       alert('Select exercise and add sets');
       return;
@@ -263,14 +311,39 @@ export function SessionView({
     const ex = exercises.find(e => e.id == selectedExercise);
     if (!ex) return;
 
-    setSession([
-      ...session,
-      {
-        ...ex,
-        sets: [...sets],
-        timestamp: Date.now()
-      }
-    ]);
+    // Lock date on first exercise if not already locked
+    if (session.length === 0 && !sessionStartDate) {
+      setSessionStartDate(date);
+    }
+
+    // Check if this exercise already exists in session (from program load)
+    const existingIndex = session.findIndex(s => s.id == selectedExercise && s.sets.length === 0);
+    
+    let updatedSession;
+    
+    if (existingIndex !== -1) {
+      // Update existing exercise with sets
+      updatedSession = [...session];
+      updatedSession[existingIndex] = {
+        ...updatedSession[existingIndex],
+        sets: [...sets]
+      };
+      setSession(updatedSession);
+    } else {
+      // Add as new exercise
+      updatedSession = [
+        ...session,
+        {
+          ...ex,
+          sets: [...sets],
+          timestamp: Date.now()
+        }
+      ];
+      setSession(updatedSession);
+    }
+
+    // Auto-save the session
+    await autoSaveSession(updatedSession);
 
     setSets([]);
     setInput({ w: '', r: '', rir: '' });
@@ -434,38 +507,78 @@ export function SessionView({
   /**
    * Finish rest day (applies recovery and advances program)
    */
-  const handleFinishRestDay = () => {
+  const handleFinishRestDay = async () => {
     // Call session complete with empty session to trigger rest day recovery
-    onSessionComplete([], date, perceivedFatigue, muscleSoreness);
+    await onSessionComplete([], date, perceivedFatigue, muscleSoreness);
     
     alert('Rest day complete. Enhanced recovery applied! 💪');
   };
 
   /**
+   * Save recovery data without exercises (for off days / rest days)
+   * Does NOT advance program
+   */
+  const handleSaveRecoveryOnly = async () => {
+    // Save recovery data WITHOUT advancing program
+    await onSaveRecoveryOnly(date, perceivedFatigue, muscleSoreness);
+    
+    // Reset fatigue inputs
+    setPerceivedFatigue(5);
+    setMuscleSoreness({});
+    setShowFatigueLog(false);
+    
+    alert('Recovery data saved! 📊');
+  };
+
+  /**
    * Finish session
    */
-  const handleFinish = () => {
+  const handleFinish = async () => {
     if (session.length === 0) {
       alert('Add exercises to session');
       return;
     }
 
-    onSessionComplete(session, date, perceivedFatigue, muscleSoreness);
+    // Use locked session start date, or current date if not locked
+    const saveDate = sessionStartDate || date;
+
+    // Final save with fatigue update and program advancement
+    await onSessionComplete(session, saveDate, perceivedFatigue, muscleSoreness);
     
-    // Reset
-    setSession([]);
-    setSets([]);
-    setInput({ w: '', r: '', rir: '' });
-    setSelectedExercise('');
-    setPerceivedFatigue(5);
-    setMuscleSoreness({});
+    // Reset session start date for next session
+    setSessionStartDate(null);
     
-    alert('Workout saved!');
+    // Don't clear session - it will stay visible
+    // User can still see their completed workout
+    alert('Workout complete! Program advanced to next day. 💪');
   };
 
   return (
     <div className="bg-white rounded-lg shadow-xl p-4 sm:p-6 animate-fadeIn">
       <h1 className="text-3xl font-bold mb-4">Log Session</h1>
+
+      {/* Session Date Indicator */}
+      <div className="mb-4 p-3 bg-blue-50 border-2 border-blue-200 rounded-lg flex items-center justify-between">
+        <div>
+          <span className="text-sm text-blue-700">Recording for:</span>
+          <span className="ml-2 font-bold text-blue-900">
+            {formatDateDisplay(sessionStartDate || date)}
+            {sessionStartDate && sessionStartDate !== date && (
+              <span className="ml-2 text-xs text-blue-600">
+                (Session started {formatDateDisplay(sessionStartDate)})
+              </span>
+            )}
+          </span>
+        </div>
+        {sessionStartDate && (
+          <button
+            onClick={() => setSessionStartDate(null)}
+            className="text-xs text-blue-700 hover:text-blue-900 underline"
+          >
+            Unlock Date
+          </button>
+        )}
+      </div>
 
       {/* Check if current program day is a rest day */}
       {activeProgram && getCurrentDay && getCurrentDay()?.isRestDay && (
@@ -629,7 +742,7 @@ export function SessionView({
           </div>
 
           {/* Muscle Soreness */}
-          <div>
+          <div className="mb-6">
             <label className="block text-base font-medium mb-3">
               Muscle Soreness (0-10)
             </label>
@@ -654,6 +767,17 @@ export function SessionView({
               ))}
             </div>
           </div>
+
+          {/* Save Recovery Data Button */}
+          <button
+            onClick={handleSaveRecoveryOnly}
+            className="w-full bg-blue-600 text-white py-3 rounded-lg text-base font-bold hover:bg-blue-700 transition-colors"
+          >
+            💾 Save Recovery Data (No Exercises)
+          </button>
+          <p className="text-xs text-slate-600 text-center mt-2">
+            Save how you feel without logging exercises
+          </p>
         </div>
       )}
 
