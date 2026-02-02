@@ -121,16 +121,44 @@ export function useFatigue(userId, workoutHistory = []) {
         setPerformanceErrors(data.performanceErrors || []);
         setReadinessHistory(data.readinessHistory || []);
         
-        // Apply any recovery that occurred since last update
+        // Calculate readiness from loaded fatigue FIRST
+        const muscleReady = calculateMuscleReadiness(data.localFatigue || {});
+        const systemicReady = calculateSystemicReadiness(data.systemicFatigue || 0);
+        setMuscleReadiness(muscleReady);
+        setSystemicReadiness(systemicReady);
+        
+        // THEN apply any recovery that occurred since last update
+        // But only if days have passed (don't apply on same day)
         if (data.lastUpdateDate) {
           const today = new Date().toISOString().split('T')[0];
-          applyRecovery(today);
-        } else {
-          // Recalculate readiness from loaded fatigue
-          const muscleReady = calculateMuscleReadiness(data.localFatigue || {});
-          const systemicReady = calculateSystemicReadiness(data.systemicFatigue || 0);
-          setMuscleReadiness(muscleReady);
-          setSystemicReadiness(systemicReady);
+          const daysSince = getDaysBetween(data.lastUpdateDate, today);
+          
+          if (daysSince > 0) {
+            console.log('📅 Days since last update:', daysSince);
+            console.log('  Applying recovery...');
+            
+            // Calculate recovery with the LOADED data, not stale state
+            const recovered = calculateRecovery(
+              { localFatigue: data.localFatigue || {}, systemicFatigue: data.systemicFatigue || 0 },
+              data.lastUpdateDate,
+              today,
+              null
+            );
+            
+            setLocalFatigue(recovered.localFatigue);
+            setSystemicFatigue(recovered.systemicFatigue);
+            setLastUpdateDate(today);
+            
+            // Recalculate readiness with recovered values
+            const recoveredMuscleReady = calculateMuscleReadiness(recovered.localFatigue);
+            const recoveredSystemicReady = calculateSystemicReadiness(recovered.systemicFatigue);
+            setMuscleReadiness(recoveredMuscleReady);
+            setSystemicReadiness(recoveredSystemicReady);
+            
+            // Decay weekly stimulus
+            const decayedStimulus = decayWeeklyStimulus(data.weeklyStimulus || {}, daysSince);
+            setWeeklyStimulus(decayedStimulus);
+          }
         }
       } else {
         resetFatigueState();
@@ -371,6 +399,14 @@ export function useFatigue(userId, workoutHistory = []) {
    * @returns {Object} Updated fatigue state
    */
   const applyRecovery = useCallback((currentDate, programContext = null) => {
+    console.log('🔄 APPLY RECOVERY CALLED');
+    console.log('  currentDate:', currentDate);
+    console.log('  lastUpdateDate:', lastUpdateDate);
+    console.log('  lastWorkoutDate:', lastWorkoutDate);
+    console.log('  BEFORE recovery:');
+    console.log('    localFatigue:', localFatigue);
+    console.log('    systemicFatigue:', systemicFatigue);
+    
     if (!lastUpdateDate && !lastWorkoutDate) {
       return { localFatigue, systemicFatigue };
     }
@@ -383,6 +419,10 @@ export function useFatigue(userId, workoutHistory = []) {
       programContext
     );
     
+    console.log('  AFTER recovery:');
+    console.log('    recovered.localFatigue:', recovered.localFatigue);
+    console.log('    recovered.systemicFatigue:', recovered.systemicFatigue);
+    
     setLocalFatigue(recovered.localFatigue);
     setSystemicFatigue(recovered.systemicFatigue);
     setLastUpdateDate(currentDate);
@@ -390,6 +430,10 @@ export function useFatigue(userId, workoutHistory = []) {
     // Recalculate readiness
     const muscleReady = calculateMuscleReadiness(recovered.localFatigue);
     const systemicReady = calculateSystemicReadiness(recovered.systemicFatigue);
+    
+    console.log('  Calculated readiness:');
+    console.log('    muscleReadiness:', muscleReady);
+    console.log('    systemicReadiness:', systemicReady);
     
     setMuscleReadiness(muscleReady);
     setSystemicReadiness(systemicReady);

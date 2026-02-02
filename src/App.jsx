@@ -146,10 +146,8 @@ const { userId, username, isAuthenticated, isLoading: authLoading, login, regist
     if (isRestDay) {
       await processWorkoutSession([], date, { perceivedFatigue, muscleSoreness }, programContext);
     } else {
-      // Save workout session with program context
-      await addSession(session, date);
-      
-      // Update fatigue with program context
+      // Workout session already auto-saved, just update fatigue
+      // (Don't call addSession - that would create duplicates!)
       await processWorkoutSession(session, date, { perceivedFatigue, muscleSoreness }, programContext);
     }
 
@@ -452,16 +450,6 @@ const { userId, username, isAuthenticated, isLoading: authLoading, login, regist
         )}
       </div>
 
-      {/* Active Program Indicator */}
-      {activeProgram && (
-        <div className={`fixed bottom-4 right-4 text-white px-4 py-3 rounded-lg shadow-lg ${currentTheme.primary.split(' ')[0]}`}>
-          <div className="text-xs font-semibold opacity-90">Active Program</div>
-          <div className="font-bold">{activeProgram.name}</div>
-          <div className="text-xs opacity-75">
-            Day {currentDayIndex + 1}/{activeProgram.days.length}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

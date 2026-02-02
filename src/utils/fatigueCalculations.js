@@ -494,7 +494,8 @@ export function checkDeloadNeeded(muscleReadiness, systemicReadiness, trends = {
   const threshold = FATIGUE_CONFIG.DELOAD_THRESHOLD;
   
   // Immediate systemic deload (no trend needed)
-  if (systemicReadiness < 0.5) {
+  // Changed from 0.5 to 0.35 - only trigger "critical" at very low readiness
+  if (systemicReadiness < 0.35) {
     return {
       needed: true,
       type: 'systemic',

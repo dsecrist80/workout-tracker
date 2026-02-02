@@ -13,7 +13,7 @@ export const FATIGUE_CONFIG = {
   LOCAL_RECOVERY_RATE: 0.20,  // ~20% reduction per day
   
   // Systemic fatigue decay rate per day
-  SYSTEMIC_RECOVERY_RATE: 0.15,  // ~15% reduction per day (slower than local)
+  SYSTEMIC_RECOVERY_RATE: 0.25,  // ~25% reduction per day (faster recovery)
   
   // === STIMULUS CALCULATION ===
   // RIR decay constant for effort calculation
@@ -31,20 +31,20 @@ export const FATIGUE_CONFIG = {
   // No arbitrary scaling needed with exponential readiness
   
   // Multiplier for axially loaded exercises (spine compression)
-  AXIAL_LOAD_MULTIPLIER: 1.3,
+  AXIAL_LOAD_MULTIPLIER: 1.15,  // Reduced from 1.3
   
   // Compound exercise systemic fatigue multiplier
-  COMPOUND_SYSTEMIC_MULTIPLIER: 1.5,
+  COMPOUND_SYSTEMIC_MULTIPLIER: 1.2,  // Reduced from 1.5
   
   // === OBSERVATIONAL CORRECTIONS ===
   // Penalty when actual RIR < target RIR (went too close to failure)
   RIR_MISS_FATIGUE_PENALTY: 0.15,  // Per RIR unit missed
   
   // Soreness correction weight
-  SORENESS_FATIGUE_WEIGHT: 0.10,  // Multiplies reported soreness
+  SORENESS_FATIGUE_WEIGHT: 0.40,  // Increased from 0.10 (40% at max soreness)
   
   // Perceived fatigue correction weight
-  PERCEIVED_FATIGUE_WEIGHT: 0.08,  // Multiplies (perceived - 5)
+  PERCEIVED_FATIGUE_WEIGHT: 0.30,  // Increased from 0.08 (30% at max fatigue)
   
   // === STIMULUS TRACKING ===
   // Weekly stimulus decay (for volume tracking)
@@ -55,7 +55,7 @@ export const FATIGUE_CONFIG = {
   PROGRESSION_THRESHOLD: 0.85,  // readiness > 85%
   
   // Readiness threshold for deload consideration
-  DELOAD_THRESHOLD: 0.60,  // readiness < 60%
+  DELOAD_THRESHOLD: 0.50,  // readiness < 50% (reduced from 60%)
   
   // === DELOAD DETECTION ===
   // Days to track for trend-based deload triggers
