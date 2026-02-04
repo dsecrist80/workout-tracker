@@ -171,6 +171,9 @@ export function SessionView({
       timer.stop();
     }
 
+    // Scroll to top so user can see the set entry area
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
     // Pre-fill weight from last performance or prescribed weight
     const prev = workouts
       .filter(w => w.id == exId)
@@ -316,17 +319,17 @@ export function SessionView({
       setSessionStartDate(date);
     }
 
-    // Check if this exercise already exists in session (from program load)
-    const existingIndex = session.findIndex(s => s.id == selectedExercise && s.sets.length === 0);
+    // Check if this exercise already exists in session
+    const existingIndex = session.findIndex(s => s.id == selectedExercise);
     
     let updatedSession;
     
     if (existingIndex !== -1) {
-      // Update existing exercise with sets
+      // Exercise already in session - ADD these sets to existing sets
       updatedSession = [...session];
       updatedSession[existingIndex] = {
         ...updatedSession[existingIndex],
-        sets: [...sets]
+        sets: [...updatedSession[existingIndex].sets, ...sets] // Merge sets!
       };
       setSession(updatedSession);
     } else {
@@ -539,6 +542,21 @@ export function SessionView({
       return;
     }
 
+    // Check if fatigue/soreness section is visible
+    // If not, prompt user to log it first
+    if (!showFatigueLog) {
+      const shouldLog = window.confirm(
+        'Would you like to log your fatigue and muscle soreness before finishing?\n\n' +
+        '(Recommended for accurate recovery tracking)'
+      );
+      
+      if (shouldLog) {
+        setShowFatigueLog(true);
+        alert('Please log your fatigue and soreness below, then click Finish Session again.');
+        return;
+      }
+    }
+
     // Use locked session start date, or current date if not locked
     const saveDate = sessionStartDate || date;
 
@@ -547,6 +565,11 @@ export function SessionView({
     
     // Reset session start date for next session
     setSessionStartDate(null);
+    
+    // Reset fatigue inputs for next session
+    setPerceivedFatigue(5);
+    setMuscleSoreness({});
+    setShowFatigueLog(false);
     
     // Don't clear session - it will stay visible
     // User can still see their completed workout
@@ -751,16 +774,21 @@ export function SessionView({
                 <div key={m} className="flex items-center gap-3">
                   <span className="text-base w-20 font-medium">{m}</span>
                   <input
-                    type="number"
-                    min="0"
-                    max="10"
-                    value={muscleSoreness[m] || 0}
-                    onChange={(e) =>
-                      setMuscleSoreness({
-                        ...muscleSoreness,
-                        [m]: parseInt(e.target.value) || 0
-                      })
-                    }
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={muscleSoreness[m] || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      // Only allow numbers 0-10
+                      if (val === '' || (/^\d+$/.test(val) && parseInt(val) >= 0 && parseInt(val) <= 10)) {
+                        setMuscleSoreness({
+                          ...muscleSoreness,
+                          [m]: val === '' ? 0 : parseInt(val)
+                        });
+                      }
+                    }}
+                    placeholder="0"
                     className="flex-1 px-3 py-2 border rounded-lg text-base text-center"
                   />
                 </div>
@@ -1054,6 +1082,16 @@ export function SessionView({
                         className="bg-blue-500 text-white px-3 py-1 rounded text-sm hover:bg-blue-600"
                       >
                         Log Sets
+                      </button>
+                    )}
+                    {ex.sets.length > 0 && (
+                      <button
+                        onClick={() => {
+                          handleExerciseSelect(ex.id);
+                        }}
+                        className="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600"
+                      >
+                        + More Sets
                       </button>
                     )}
                     <button

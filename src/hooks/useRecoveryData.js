@@ -63,25 +63,43 @@ export function useRecoveryData({
         
         weekData.volume[muscle] = muscleVolume;
         
-        // Get fatigue from history
-        const weekHistory = readinessHistory.find(h => {
+        // Get fatigue from history - use LATEST entry in the week
+        const weekHistoryEntries = readinessHistory.filter(h => {
           const hDate = new Date(h.date);
           return hDate >= weekStart && hDate < weekEnd;
         });
         
-        if (weekHistory && weekHistory.muscleFatigue) {
-          weekData.fatigue[muscle] = weekHistory.muscleFatigue[muscle] || 0;
+        // Sort by date descending and take the latest
+        const weekHistory = weekHistoryEntries.length > 0 
+          ? weekHistoryEntries.sort((a, b) => new Date(b.date) - new Date(a.date))[0]
+          : null;
+        
+        // Fatigue chart: Use muscle soreness as a proxy (0-10 scale)
+        // Or we could calculate from readiness if available
+        if (weekHistory && weekHistory.muscleSoreness && weekHistory.muscleSoreness[muscle]) {
+          weekData.fatigue[muscle] = weekHistory.muscleSoreness[muscle] / 10; // Normalize to 0-1
         } else if (i === 0) {
+          // Current week - use actual fatigue
           weekData.fatigue[muscle] = localFatigue[muscle] || 0;
         } else {
           weekData.fatigue[muscle] = 0;
         }
         
-        // Get stimulus from history
-        const weekStimulus = stimulusHistory.find(h => {
+        // Get stimulus from history - use LATEST entry in the week
+        const weekStimulusEntries = stimulusHistory.filter(h => {
           const hDate = new Date(h.date);
           return hDate >= weekStart && hDate < weekEnd;
         });
+        
+        console.log(`Week ${i} (${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}):`, {
+          weekStimulusEntries: weekStimulusEntries.length,
+          dates: weekStimulusEntries.map(e => e.date)
+        });
+        
+        // Sort by date descending and take the latest
+        const weekStimulus = weekStimulusEntries.length > 0
+          ? weekStimulusEntries.sort((a, b) => new Date(b.date) - new Date(a.date))[0]
+          : null;
         
         if (weekStimulus && weekStimulus.stimulus) {
           weekData.stimulus[muscle] = weekStimulus.stimulus[muscle] || 0;

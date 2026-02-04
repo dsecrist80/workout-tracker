@@ -3,7 +3,7 @@
 // Fatigue Tracking & Recovery Hook (Exponential Model)
 // =====================================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { databaseService } from '../services/database';
 import { 
   updateFatigueFromSession, 
@@ -41,6 +41,9 @@ export function useFatigue(userId, workoutHistory = []) {
   // Observational data
   const [perceivedFatigue, setPerceivedFatigue] = useState(5);
   const [muscleSoreness, setMuscleSoreness] = useState({});
+  
+  // Ref to prevent double recovery application
+  const isInitialLoad = useRef(true);
   
   // Performance tracking for deload detection
   const [performanceErrors, setPerformanceErrors] = useState([]);
@@ -128,26 +131,28 @@ export function useFatigue(userId, workoutHistory = []) {
         setSystemicReadiness(systemicReady);
         
         // THEN apply any recovery that occurred since last update
-        // But only if days have passed (don't apply on same day)
+        // But only if time has passed (don't apply on same day)
         if (data.lastUpdateDate) {
-          const today = new Date().toISOString().split('T')[0];
-          const daysSince = getDaysBetween(data.lastUpdateDate, today);
+          const now = new Date();
+          const lastUpdate = new Date(data.lastUpdateDate);
+          const daysSince = getDaysBetween(lastUpdate, now);
           
-          if (daysSince > 0) {
-            console.log('📅 Days since last update:', daysSince);
+          // Only apply recovery if at least some time has passed (> 0.01 days = ~15 minutes)
+          if (daysSince > 0.01) {
+            console.log('📅 Time since last update:', daysSince.toFixed(2), 'days');
             console.log('  Applying recovery...');
             
             // Calculate recovery with the LOADED data, not stale state
             const recovered = calculateRecovery(
               { localFatigue: data.localFatigue || {}, systemicFatigue: data.systemicFatigue || 0 },
               data.lastUpdateDate,
-              today,
+              now.toISOString(),
               null
             );
             
             setLocalFatigue(recovered.localFatigue);
             setSystemicFatigue(recovered.systemicFatigue);
-            setLastUpdateDate(today);
+            setLastUpdateDate(now.toISOString()); // Store full timestamp
             
             // Recalculate readiness with recovered values
             const recoveredMuscleReady = calculateMuscleReadiness(recovered.localFatigue);
@@ -158,10 +163,20 @@ export function useFatigue(userId, workoutHistory = []) {
             // Decay weekly stimulus
             const decayedStimulus = decayWeeklyStimulus(data.weeklyStimulus || {}, daysSince);
             setWeeklyStimulus(decayedStimulus);
+            
+            // Mark that we've done initial recovery
+            isInitialLoad.current = false;
+          } else {
+            // No recovery needed, but still mark initial load complete
+            isInitialLoad.current = false;
           }
+        } else {
+          // No lastUpdateDate, mark initial load complete
+          isInitialLoad.current = false;
         }
       } else {
         resetFatigueState();
+        isInitialLoad.current = false;
       }
     } catch (err) {
       console.error('Failed to load fatigue state:', err);
@@ -281,7 +296,7 @@ export function useFatigue(userId, workoutHistory = []) {
       if (!result.isRestDay) {
         setLastWorkoutDate(result.lastWorkoutDate);
       }
-      setLastUpdateDate(date);
+      setLastUpdateDate(new Date().toISOString()); // Store full timestamp with time
       
       // Track stimulus history (only for training days)
       if (!result.isRestDay && result.sessionStimulus) {
@@ -415,7 +430,7 @@ export function useFatigue(userId, workoutHistory = []) {
     const recovered = calculateRecovery(
       { localFatigue, systemicFatigue },
       refDate,
-      currentDate,
+      currentDate, // Can be ISO string or Date
       programContext
     );
     
@@ -425,7 +440,7 @@ export function useFatigue(userId, workoutHistory = []) {
     
     setLocalFatigue(recovered.localFatigue);
     setSystemicFatigue(recovered.systemicFatigue);
-    setLastUpdateDate(currentDate);
+    setLastUpdateDate(typeof currentDate === 'string' ? currentDate : currentDate.toISOString());
     
     // Recalculate readiness
     const muscleReady = calculateMuscleReadiness(recovered.localFatigue);
@@ -729,15 +744,52 @@ export function useFatigue(userId, workoutHistory = []) {
     }
   }, [userId, localFatigue, systemicFatigue, weeklyStimulus, stimulusHistory, isLoading, saveFatigueState]);
 
-  // Apply daily recovery automatically
+  // Apply recovery automatically when time passes
+  // NOTE: Only depends on lastUpdateDate to avoid infinite loops
+  // applyRecovery is NOT in dependencies on purpose
   useEffect(() => {
-    if (lastUpdateDate) {
-      const today = new Date().toISOString().split('T')[0];
-      if (today !== lastUpdateDate) {
-        applyRecovery(today);
+    // Skip if this is the initial load (loadFatigueState handles that)
+    if (isInitialLoad.current) {
+      return;
+    }
+    
+    if (lastUpdateDate && !isLoading) {
+      const now = new Date();
+      const lastUpdate = new Date(lastUpdateDate);
+      const hoursSince = (now - lastUpdate) / (1000 * 60 * 60);
+      
+      // Apply recovery if more than 1 hour has passed
+      // This allows gradual recovery instead of once-per-day jumps
+      if (hoursSince >= 1) {
+        console.log(`🕐 Auto-recovery triggered - ${hoursSince.toFixed(1)} hours since last update`);
+        applyRecovery(now.toISOString());
       }
     }
-  }, [lastUpdateDate, applyRecovery]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastUpdateDate]); // Only trigger when lastUpdateDate changes
+
+  // Periodic recovery check for users who keep app open
+  // Check every 30 minutes if recovery should be applied
+  useEffect(() => {
+    if (!userId || isLoading) return;
+
+    const interval = setInterval(() => {
+      if (lastUpdateDate) {
+        const now = new Date();
+        const lastUpdate = new Date(lastUpdateDate);
+        const hoursSince = (now - lastUpdate) / (1000 * 60 * 60);
+        
+        // Apply recovery if more than 1 hour has passed
+        if (hoursSince >= 1) {
+          console.log(`🕐 Periodic recovery check - ${hoursSince.toFixed(1)} hours since last update`);
+          applyRecovery(now.toISOString());
+        }
+      }
+    }, 30 * 60 * 1000); // Check every 30 minutes
+
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, isLoading, lastUpdateDate]);
 
   return {
     // State
@@ -781,11 +833,25 @@ export function useFatigue(userId, workoutHistory = []) {
   };
 }
 
+/**
+ * Calculate fractional days between two dates using actual timestamps
+ * This provides hour-level accuracy for recovery calculations
+ * @param {string|number} date1 - ISO date string or timestamp
+ * @param {string|number} date2 - ISO date string or timestamp
+ * @returns {number} Fractional days (e.g., 1.5 = 36 hours)
+ */
 function getDaysBetween(date1, date2) {
-  const d1 = new Date(date1);
-  const d2 = new Date(date2);
-  const diffTime = Math.abs(d2 - d1);
-  return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  // Handle both ISO date strings and timestamps
+  const d1 = typeof date1 === 'string' ? new Date(date1) : new Date(date1);
+  const d2 = typeof date2 === 'string' ? new Date(date2) : new Date(date2);
+  
+  const diffMs = Math.abs(d2 - d1);
+  const diffHours = diffMs / (1000 * 60 * 60);
+  const diffDays = diffHours / 24;
+  
+  console.log(`⏱️ Time difference: ${diffHours.toFixed(1)} hours = ${diffDays.toFixed(2)} days`);
+  
+  return diffDays; // Returns fractional days for accurate recovery
 }
 
 export default useFatigue;
